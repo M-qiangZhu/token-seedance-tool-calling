@@ -29,7 +29,7 @@ function Login({ onLogin }) {
     catch (reason) { setError(reason.message); } finally { setBusy(false); }
   };
   return <div className="auth-page"><section className="auth-card">
-    <div className="auth-logo"><Sparkles /> 江苏电信 TokenHub</div>
+    <div className="auth-logo"><Sparkles /> 南通电信智云中心 seedance API Tools</div>
     <h1>Seedance 部门工作台</h1><p>使用管理员分配的账号登录。API Key仅保存在本次服务器会话内。</p>
     {error && <InlineError text={error} />}
     <form onSubmit={submit} className="auth-form">
@@ -58,7 +58,7 @@ function Portal({ auth, onLogout }) {
   const [view, setView] = useState('studio');
   const logout = async () => { try { await api('/api/auth/logout', { method: 'POST', csrf: auth.csrfToken }); } finally { onLogout(); } };
   return <>
-    <nav className="topbar"><div className="topbar-brand"><Sparkles size={18} /> Seedance 部门工作台</div><div className="topbar-actions">
+    <nav className="topbar"><div className="topbar-brand"><Sparkles size={18} /> 南通电信智云中心 seedance API Tools</div><div className="topbar-actions">
       <button className={view === 'studio' ? 'active' : ''} onClick={() => setView('studio')}><Film size={16} /> 视频生成</button>
       {auth.user.role === 'ADMIN' && <button className={view === 'admin' ? 'active' : ''} onClick={() => setView('admin')}><LayoutDashboard size={16} /> 管理后台</button>}
       <span className="user-pill">{auth.user.username} · {auth.user.role}</span><button onClick={logout}><LogOut size={16} /> 退出</button>
@@ -141,7 +141,7 @@ function Studio({ auth }) {
 
   const descriptor = models.find((item) => item.id === config.model);
   return <main>
-    <header className="hero compact-hero"><div className="brand"><Sparkles size={18} /> 江苏电信 TokenHub</div><div className="hero-copy"><span className="eyebrow">SEEDANCE VIDEO STUDIO</span><h1>把一句想法，变成一段画面。</h1><p>账号隔离、后台排队、自动轮询，并按 TokenHub真实用量核算费用。</p></div><div className={`connection ${configured ? 'online' : ''}`}><span className="connection-dot" />{configured ? `已连接 · ${maskedKey}` : '等待配置'}</div></header>
+    <header className="hero compact-hero"><div className="brand"><Sparkles size={18} /> 南通电信智云中心 seedance API Tools</div><div className="hero-copy"><span className="eyebrow"><span>Tokenhub — </span><strong>SEEDANCE VIDEO STUDIO</strong></span><h1>把一句想法，变成一段画面。</h1><p>账号隔离、后台排队、自动轮询，并按 TokenHub真实用量核算费用。</p></div><div className={`connection ${configured ? 'online' : ''}`}><span className="connection-dot" />{configured ? `已连接 · ${maskedKey}` : '等待配置'}</div></header>
     {notice && <Notice notice={notice} onClose={() => setNotice(null)} />}
     <section className="settings card"><div className="settings-body always-open">
       <div className="field span-2"><label>文生视频 URL</label><div className="input-icon"><Wifi size={17} /><input type="url" value={config.url} onChange={(event) => setConfig({ ...config, url: event.target.value })} /></div></div>
@@ -205,7 +205,15 @@ function SettingsCard({ settings, auth, onSaved }) {
 }
 
 function DashboardCards({ dashboard }) { const cards = [[Activity,'活跃任务',dashboard.active],[Clock3,'排队任务',dashboard.queued],[Check,'成功任务',dashboard.succeeded],[Gauge,'累计费用',`¥${Number(dashboard.totalCost || 0).toFixed(4)}`]]; return <div className="metrics">{cards.map(([Icon,label,value]) => <div className="metric" key={label}><Icon /><div><span>{label}</span><strong>{value ?? 0}</strong></div></div>)}</div>; }
-function TaskCard({ task }) { const active = ACTIVE_STATES.has(task.status); return <article className={`task ${task.status.toLowerCase()}`}><div className="task-top"><div className="task-status">{active ? <LoaderCircle className="spin" /> : task.status === 'SUCCEEDED' ? <Check /> : <CircleAlert />} {statusText(task.status)}</div><span className="model-chip">{task.resolution?.toUpperCase()}</span></div>{task.videoUrl && <div className="video-wrap"><video src={task.videoUrl} controls preload="metadata" /></div>}<p className="task-prompt">{task.prompt}</p><div className="task-meta"><span><Clock3 /> {formatDate(task.createdAt)}</span><span>{shortModel(task.model)}</span></div>{task.message && ['FAILED','UNKNOWN'].includes(task.status) && <div className="task-error">{task.message}</div>}{task.cost ? <div className="usage-box"><span>输入 {task.cost.promptTokens}</span><span>输出 {task.cost.completionTokens}</span><strong>¥{task.cost.totalCost.toFixed(4)}</strong></div> : task.status === 'SUCCEEDED' && <div className="usage-box muted">TokenHub未返回用量，无法精确计费</div>}{task.videoUrl && <div className="video-actions"><button onClick={() => navigator.clipboard.writeText(task.videoUrl)}><Copy />复制链接</button><a href={task.videoUrl} target="_blank" rel="noreferrer"><ExternalLink />打开</a><a href={task.videoUrl} download><Download />下载</a></div>}<div className="task-id">本地任务：{task.id}{task.remoteTaskId ? ` · 远端：${task.remoteTaskId}` : ''}</div></article>; }
+function TaskCard({ task }) { const active = ACTIVE_STATES.has(task.status); return <article className={`task ${task.status.toLowerCase()}`}><div className="task-top"><div className="task-status">{active ? <LoaderCircle className="spin" /> : task.status === 'SUCCEEDED' ? <Check /> : <CircleAlert />} {statusText(task.status)}</div><span className="model-chip">{task.resolution?.toUpperCase()}</span></div>{task.videoUrl && <TaskVideo task={task} />}<p className="task-prompt">{task.prompt}</p><div className="task-meta"><span><Clock3 /> {formatDate(task.createdAt)}</span><span>{shortModel(task.model)}</span></div>{task.message && ['FAILED','UNKNOWN'].includes(task.status) && <div className="task-error">{task.message}</div>}{task.cost ? <div className="usage-box"><span>输入 {task.cost.promptTokens}</span><span>输出 {task.cost.completionTokens}</span><strong>¥{task.cost.totalCost.toFixed(4)}</strong></div> : task.status === 'SUCCEEDED' && <div className="usage-box muted">TokenHub未返回用量，无法精确计费</div>}{task.videoUrl && <div className="video-actions"><button onClick={() => navigator.clipboard.writeText(task.videoUrl)}><Copy />复制链接</button><a href={task.videoUrl} target="_blank" rel="noreferrer"><ExternalLink />打开</a><a href={task.videoUrl} download><Download />下载</a></div>}<div className="task-id">本地任务：{task.id}{task.remoteTaskId ? ` · 远端：${task.remoteTaskId}` : ''}</div></article>; }
+function TaskVideo({ task }) {
+  const [aspectRatio, setAspectRatio] = useState(String(task.ratio || '16:9').replace(':', ' / '));
+  const fitNativeRatio = (event) => {
+    const { videoWidth, videoHeight } = event.currentTarget;
+    if (videoWidth > 0 && videoHeight > 0) setAspectRatio(`${videoWidth} / ${videoHeight}`);
+  };
+  return <div className="video-wrap" style={{ aspectRatio }}><video src={task.videoUrl} controls playsInline preload="metadata" onLoadedMetadata={fitNativeRatio} /></div>;
+}
 function Toggle({ label, value, onChange }) { return <label className="switch-label"><span>{label}</span><button type="button" className={`switch ${value ? 'on' : ''}`} onClick={() => onChange(!value)}><span /></button></label>; }
 function EmptyResult() { return <div className="empty-result"><div className="film-icon"><Film /></div><h3>视频将在这里出现</h3><p>提交后可以关闭页面，服务器会继续排队和查询。</p></div>; }
 function Notice({ notice, onClose }) { return <div className={`notice ${notice.type}`}>{notice.type === 'success' ? <Check /> : <CircleAlert />}<span>{notice.text}</span><button onClick={onClose}>×</button></div>; }

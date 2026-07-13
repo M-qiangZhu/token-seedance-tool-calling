@@ -47,7 +47,8 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; padding: 30px 0 24
 .brand { position: relative; display: flex; gap: 9px; align-items: center; font-weight: 600; font-size: 14px; letter-spacing: .02em; }
 .brand svg { color: #8ab7ff; }
 .hero-copy { position: relative; margin-top: 42px; max-width: 710px; }
-.eyebrow { color: #86b6ff; font-size: 11px; font-weight: 700; letter-spacing: .18em; }
+.eyebrow { color: #86b6ff; font-size: 11px; font-weight: 500; letter-spacing: .12em; }
+.eyebrow strong { font-weight: 700; letter-spacing: .18em; }
 h1 { margin: 9px 0 12px; font-size: clamp(31px, 4.5vw, 50px); line-height: 1.1; letter-spacing: -.045em; }
 .hero p { margin: 0; max-width: 640px; color: rgba(255,255,255,.72); font-size: 15px; line-height: 1.75; }
 .connection { position: absolute; top: 30px; right: 34px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; background: rgba(7,15,35,.22); color: rgba(255,255,255,.72); font-size: 12px; backdrop-filter: blur(10px); }
@@ -124,8 +125,8 @@ form textarea { height: 177px; resize: vertical; padding: 15px; line-height: 1.7
 .task.succeeded .task-status { color: #1c8a60; }
 .task.failed .task-status { color: #c04b4b; }
 .icon-button { display: grid; place-items: center; width: 31px; height: 31px; border: 1px solid #e0e5ee; border-radius: 8px; background: #fff; color: #667187; }
-.video-wrap { overflow: hidden; margin-top: 13px; border-radius: 11px; background: #0b1020; aspect-ratio: 16 / 9; }
-.video-wrap video { width: 100%; height: 100%; object-fit: contain; }
+.video-wrap { width: 100%; max-height: min(72vh, 760px); display: grid; place-items: center; overflow: hidden; margin-top: 13px; border-radius: 11px; background: #0b1020; }
+.video-wrap video { display: block; width: 100%; height: 100%; max-width: 100%; max-height: min(72vh, 760px); background: #0b1020; object-fit: contain; }
 .task-prompt { display: -webkit-box; overflow: hidden; margin: 13px 0 8px; color: #313a4d; font-size: 13px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .task-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #8a92a1; font-size: 10px; }
 .task-meta span { display: flex; align-items: center; gap: 4px; }

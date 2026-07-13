@@ -1,4 +1,4 @@
-# TokenHub Seedance 部门工作台
+# 南通电信智云中心 seedance API Tools
 
 面向部门同事的文生视频工具：账号隔离、API Key自动发现模型、模型联动参数、服务端持久队列、Token与费用统计、管理员后台。
 
@@ -17,7 +17,7 @@ API Key仅保存在Node进程内存，服务器重启后需要重新填写。任
 要求 Node.js 24+、pnpm 10+。开发时可使用内存存储：
 
 ```bash
-export BOOTSTRAP_ADMIN_USERNAME=admin
+export BOOTSTRAP_ADMIN_USERNAME=admin_sd
 export BOOTSTRAP_ADMIN_PASSWORD='ChangeThis123'
 pnpm install
 pnpm dev
@@ -48,7 +48,7 @@ curl http://127.0.0.1:19405/api/health/ready
 首次启动由 `.env` 中的 `BOOTSTRAP_ADMIN_USERNAME` 和 `BOOTSTRAP_ADMIN_PASSWORD` 创建管理员，首次登录强制修改密码。以后可以在后台创建用户，也可用命令重置管理员：
 
 ```bash
-ADMIN_PASSWORD='NewTemporary123' pnpm admin:create admin
+ADMIN_PASSWORD='NewTemporary123' pnpm admin:create admin_sd
 ```
 
 ## 验证

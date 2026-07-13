@@ -42,7 +42,7 @@ export function createApp({
   });
   app.use('/api', fixedWindow(requestWindows, { limit: 120, windowMs: 60_000, key: (req) => req.ip }));
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'TokenHub Seedance 部门工作台 API' }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, name: '南通电信智云中心 seedance API Tools' }));
   app.get('/api/health/live', (_req, res) => res.json({ ok: true }));
   app.get('/api/health/ready', async (_req, res) => {
     try { await store.getSettings(); res.json({ ok: true, database: 'ready' }); }
