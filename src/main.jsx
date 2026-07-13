@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import {
   Activity, Check, CircleAlert, Clock3, Copy, Download, ExternalLink, Film, Gauge,
   KeyRound, LayoutDashboard, LoaderCircle, LogOut, Play, RefreshCw, Save, Settings2,
-  ShieldCheck, Sparkles, UserPlus, Users, Wifi, Maximize2
+  ShieldCheck, Sparkles, UserPlus, Users, Wifi
 } from 'lucide-react';
 import './styles.css';
 
@@ -140,6 +140,8 @@ function Studio({ auth }) {
   };
 
   const descriptor = models.find((item) => item.id === config.model);
+  const latestTask = tasks[0];
+  const historyTasks = tasks.slice(1);
   return <main>
     <header className="hero compact-hero"><div className="brand"><Sparkles size={18} /> 南通电信智云中心 seedance API Tools</div><div className="hero-copy"><span className="eyebrow"><span>Tokenhub — </span><strong>SEEDANCE VIDEO STUDIO</strong></span><h1>把一句想法，变成一段画面。</h1><p>账号隔离、后台排队、自动轮询，并按 TokenHub真实用量核算费用。</p></div><div className={`connection ${configured ? 'online' : ''}`}><span className="connection-dot" />{configured ? `已连接 · ${maskedKey}` : '等待配置'}</div></header>
     {notice && <Notice notice={notice} onClose={() => setNotice(null)} />}
@@ -151,16 +153,16 @@ function Studio({ auth }) {
     </div></section>
     <div className="workspace">
       <section className="composer card"><div className="section-heading"><div><span className="step">01</span><h2>描述你想看到的画面</h2></div><span className="model-chip">{descriptor?.label || '未选择模型'}</span></div>
-        <form onSubmit={submit}><div className="prompt-wrap"><textarea required maxLength={5000} value={form.prompt} onChange={(event) => setForm({ ...form, prompt: event.target.value })} placeholder="例如：清晨的南京长江大桥笼罩在薄雾中，镜头沿江面缓慢向前推进，电影感……" /><span className="char-count">{form.prompt.length} / 5000</span></div>
+        <form onSubmit={submit} className="composer-form"><div className="composer-layout"><div className="prompt-column"><div className="prompt-wrap"><textarea required maxLength={5000} value={form.prompt} onChange={(event) => setForm({ ...form, prompt: event.target.value })} placeholder="例如：清晨的南京长江大桥笼罩在薄雾中，镜头沿江面缓慢向前推进，电影感……" /><span className="char-count">{form.prompt.length} / 5000</span></div><p className="model-hint">{descriptor ? `${descriptor.label} 支持 ${descriptor.resolutions.join(' / ')}、4–15秒。` : '请先配置并选择模型。'}</p></div>
           <div className="parameter-grid"><label>分辨率<select value={form.resolution} onChange={(event) => setForm({ ...form, resolution: event.target.value })}>{(descriptor?.resolutions || ['720p']).map((value) => <option key={value} value={value}>{value.toUpperCase()}</option>)}</select></label>
             <label>画面比例<select value={form.ratio} onChange={(event) => setForm({ ...form, ratio: event.target.value })}>{['16:9','9:16','1:1','4:3','3:4','21:9'].map((value) => <option key={value}>{value}</option>)}</select></label>
             <label>时长（秒）<input type="number" min="4" max="15" value={form.duration} onChange={(event) => setForm({ ...form, duration: Number(event.target.value) })} /></label>
             <Toggle label="生成音频" value={form.generateAudio} onChange={(value) => setForm({ ...form, generateAudio: value })} />
             <Toggle label="添加水印" value={form.watermark} onChange={(value) => setForm({ ...form, watermark: value })} />
-          </div><p className="model-hint">{descriptor ? `${descriptor.label} 支持 ${descriptor.resolutions.join(' / ')}、4–15秒。` : '请先配置并选择模型。'}</p>
+          </div></div>
           <button className="generate" disabled={submitting || !configured || !descriptor}>{submitting ? <LoaderCircle className="spin" /> : <Play fill="currentColor" />} {submitting ? '正在入队…' : '开始生成视频'}</button><p className="cost-hint">提交会产生真实模型调用费用；排队任务由服务器统一控制并发。</p>
         </form></section>
-      <section className="results card"><div className="section-heading"><div><span className="step">02</span><h2>我的任务</h2></div><button className="icon-button" onClick={refreshTasks}><RefreshCw size={16} /></button></div>{tasks.length ? <div className="task-list">{tasks.map((task) => <TaskCard key={task.id} task={task} />)}</div> : <EmptyResult />}</section>
+      <section className="results card"><div className="section-heading"><div><span className="step">02</span><h2>我的任务</h2></div><div className="results-heading-actions"><span className="task-count">{tasks.length} 条任务</span><button className="icon-button" type="button" onClick={refreshTasks} aria-label="刷新任务" title="刷新任务"><RefreshCw size={16} /></button></div></div>{latestTask ? <div className="task-list"><section className="latest-task" aria-label="最新任务"><div className="task-group-heading"><span>最新任务</span><small>最近提交</small></div><TaskCard task={latestTask} featured /></section>{historyTasks.length > 0 && <section className="history-tasks" aria-label="历史任务"><div className="task-group-heading"><span>历史任务</span><small>{historyTasks.length} 条</small></div><div className="task-history">{historyTasks.map((task) => <TaskCard key={task.id} task={task} />)}</div></section>}</div> : <EmptyResult />}</section>
     </div><footer>API Key不落盘 · 任务记录保留90天 · 视频链接通常仅有效24小时</footer>
   </main>;
 }
@@ -205,33 +207,17 @@ function SettingsCard({ settings, auth, onSaved }) {
 }
 
 function DashboardCards({ dashboard }) { const cards = [[Activity,'活跃任务',dashboard.active],[Clock3,'排队任务',dashboard.queued],[Check,'成功任务',dashboard.succeeded],[Gauge,'累计费用',`¥${Number(dashboard.totalCost || 0).toFixed(4)}`]]; return <div className="metrics">{cards.map(([Icon,label,value]) => <div className="metric" key={label}><Icon /><div><span>{label}</span><strong>{value ?? 0}</strong></div></div>)}</div>; }
-function TaskCard({ task }) { const active = ACTIVE_STATES.has(task.status); return <article className={`task ${task.status.toLowerCase()}`}><div className="task-top"><div className="task-status">{active ? <LoaderCircle className="spin" /> : task.status === 'SUCCEEDED' ? <Check /> : <CircleAlert />} {statusText(task.status)}</div><span className="model-chip">{task.resolution?.toUpperCase()}</span></div>{task.videoUrl && <TaskVideo task={task} />}<p className="task-prompt">{task.prompt}</p><div className="task-meta"><span><Clock3 /> {formatDate(task.createdAt)}</span><span>{shortModel(task.model)}</span></div>{task.message && ['FAILED','UNKNOWN'].includes(task.status) && <div className="task-error">{task.message}</div>}{task.cost ? <div className="usage-box"><span>输入 {task.cost.promptTokens}</span><span>输出 {task.cost.completionTokens}</span><strong>¥{task.cost.totalCost.toFixed(4)}</strong></div> : task.status === 'SUCCEEDED' && <div className="usage-box muted">TokenHub未返回用量，无法精确计费</div>}{task.videoUrl && <div className="video-actions"><button onClick={() => navigator.clipboard.writeText(task.videoUrl)}><Copy />复制链接</button><a href={task.videoUrl} target="_blank" rel="noreferrer"><ExternalLink />打开</a><a href={task.videoUrl} download><Download />下载</a></div>}<div className="task-id">本地任务：{task.id}{task.remoteTaskId ? ` · 远端：${task.remoteTaskId}` : ''}</div></article>; }
+function TaskCard({ task, featured = false }) { const active = ACTIVE_STATES.has(task.status); return <article className={`task ${featured ? 'featured' : ''} ${task.status.toLowerCase()}`}><div className="task-top"><div className="task-status">{active ? <LoaderCircle className="spin" /> : task.status === 'SUCCEEDED' ? <Check /> : <CircleAlert />} {statusText(task.status)}</div><span className="model-chip">{task.resolution?.toUpperCase()}</span></div>{task.videoUrl && <TaskVideo task={task} />}<p className="task-prompt">{task.prompt}</p><div className="task-meta"><span><Clock3 /> {formatDate(task.createdAt)}</span><span>{shortModel(task.model)}</span></div>{task.message && ['FAILED','UNKNOWN'].includes(task.status) && <div className="task-error">{task.message}</div>}{task.cost ? <div className="usage-box"><span>输入 {task.cost.promptTokens}</span><span>输出 {task.cost.completionTokens}</span><strong>¥{task.cost.totalCost.toFixed(4)}</strong></div> : task.status === 'SUCCEEDED' && <div className="usage-box muted">TokenHub未返回用量，无法精确计费</div>}{task.videoUrl && <div className="video-actions"><button onClick={() => navigator.clipboard.writeText(task.videoUrl)}><Copy />复制链接</button><a href={task.videoUrl} target="_blank" rel="noreferrer"><ExternalLink />打开</a><a href={task.videoUrl} download><Download />下载</a></div>}<div className="task-id">本地任务：{task.id}{task.remoteTaskId ? ` · 远端：${task.remoteTaskId}` : ''}</div></article>; }
 function TaskVideo({ task }) {
-  const videoRef = useRef(null);
-  const [fullscreenError, setFullscreenError] = useState('');
-  const playFullscreen = async () => {
-    const video = videoRef.current;
-    if (!video) return;
-    setFullscreenError('');
-    try {
-      if (video.requestFullscreen) await video.requestFullscreen();
-      else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
-      else throw new Error('FULLSCREEN_UNAVAILABLE');
-    } catch (_error) {
-      setFullscreenError('浏览器未能进入全屏，请使用下方“打开”按钮播放原视频。');
-      return;
-    }
-    try { await video.play(); } catch (_error) { /* 全屏内仍可使用原生播放按钮 */ }
+  const [aspectRatio, setAspectRatio] = useState(String(task.ratio || '16:9').replace(':', ' / '));
+  const fitNativeRatio = (event) => {
+    const { videoWidth, videoHeight } = event.currentTarget;
+    if (videoWidth > 0 && videoHeight > 0) setAspectRatio(`${videoWidth} / ${videoHeight}`);
   };
-  return <>
-    <div className="video-wrap">
-      <video ref={videoRef} src={task.videoUrl} controls playsInline preload="metadata" />
-      <button type="button" className="video-fullscreen-trigger" onClick={playFullscreen} aria-label="全屏播放原视频">
-        <span><Maximize2 /> 点击全屏播放</span>
-      </button>
-    </div>
-    {fullscreenError && <div className="video-fullscreen-error" role="status">{fullscreenError}</div>}
-  </>;
+  const [width, height] = aspectRatio.split('/').map(Number);
+  const ratio = width > 0 && height > 0 ? width / height : 16 / 9;
+  const orientation = ratio < .9 ? 'portrait' : ratio <= 1.1 ? 'square' : 'landscape';
+  return <div className={`video-wrap ${orientation}`} style={{ aspectRatio }}><video src={task.videoUrl} controls playsInline preload="metadata" onLoadedMetadata={fitNativeRatio} /></div>;
 }
 function Toggle({ label, value, onChange }) { return <label className="switch-label"><span>{label}</span><button type="button" className={`switch ${value ? 'on' : ''}`} onClick={() => onChange(!value)}><span /></button></label>; }
 function EmptyResult() { return <div className="empty-result"><div className="film-icon"><Film /></div><h3>视频将在这里出现</h3><p>提交后可以关闭页面，服务器会继续排队和查询。</p></div>; }
