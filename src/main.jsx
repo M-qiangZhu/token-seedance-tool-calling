@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import {
   Activity, Check, CircleAlert, Clock3, Copy, Download, ExternalLink, Film, Gauge,
   KeyRound, LayoutDashboard, LoaderCircle, LogOut, Play, RefreshCw, Save, Settings2,
-  ShieldCheck, Sparkles, UserPlus, Users, Wifi
+  ShieldCheck, Sparkles, UserPlus, Users, Wifi, Maximize2
 } from 'lucide-react';
 import './styles.css';
 
@@ -207,12 +207,31 @@ function SettingsCard({ settings, auth, onSaved }) {
 function DashboardCards({ dashboard }) { const cards = [[Activity,'活跃任务',dashboard.active],[Clock3,'排队任务',dashboard.queued],[Check,'成功任务',dashboard.succeeded],[Gauge,'累计费用',`¥${Number(dashboard.totalCost || 0).toFixed(4)}`]]; return <div className="metrics">{cards.map(([Icon,label,value]) => <div className="metric" key={label}><Icon /><div><span>{label}</span><strong>{value ?? 0}</strong></div></div>)}</div>; }
 function TaskCard({ task }) { const active = ACTIVE_STATES.has(task.status); return <article className={`task ${task.status.toLowerCase()}`}><div className="task-top"><div className="task-status">{active ? <LoaderCircle className="spin" /> : task.status === 'SUCCEEDED' ? <Check /> : <CircleAlert />} {statusText(task.status)}</div><span className="model-chip">{task.resolution?.toUpperCase()}</span></div>{task.videoUrl && <TaskVideo task={task} />}<p className="task-prompt">{task.prompt}</p><div className="task-meta"><span><Clock3 /> {formatDate(task.createdAt)}</span><span>{shortModel(task.model)}</span></div>{task.message && ['FAILED','UNKNOWN'].includes(task.status) && <div className="task-error">{task.message}</div>}{task.cost ? <div className="usage-box"><span>输入 {task.cost.promptTokens}</span><span>输出 {task.cost.completionTokens}</span><strong>¥{task.cost.totalCost.toFixed(4)}</strong></div> : task.status === 'SUCCEEDED' && <div className="usage-box muted">TokenHub未返回用量，无法精确计费</div>}{task.videoUrl && <div className="video-actions"><button onClick={() => navigator.clipboard.writeText(task.videoUrl)}><Copy />复制链接</button><a href={task.videoUrl} target="_blank" rel="noreferrer"><ExternalLink />打开</a><a href={task.videoUrl} download><Download />下载</a></div>}<div className="task-id">本地任务：{task.id}{task.remoteTaskId ? ` · 远端：${task.remoteTaskId}` : ''}</div></article>; }
 function TaskVideo({ task }) {
-  const [aspectRatio, setAspectRatio] = useState(String(task.ratio || '16:9').replace(':', ' / '));
-  const fitNativeRatio = (event) => {
-    const { videoWidth, videoHeight } = event.currentTarget;
-    if (videoWidth > 0 && videoHeight > 0) setAspectRatio(`${videoWidth} / ${videoHeight}`);
+  const videoRef = useRef(null);
+  const [fullscreenError, setFullscreenError] = useState('');
+  const playFullscreen = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    setFullscreenError('');
+    try {
+      if (video.requestFullscreen) await video.requestFullscreen();
+      else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+      else throw new Error('FULLSCREEN_UNAVAILABLE');
+    } catch (_error) {
+      setFullscreenError('浏览器未能进入全屏，请使用下方“打开”按钮播放原视频。');
+      return;
+    }
+    try { await video.play(); } catch (_error) { /* 全屏内仍可使用原生播放按钮 */ }
   };
-  return <div className="video-wrap" style={{ aspectRatio }}><video src={task.videoUrl} controls playsInline preload="metadata" onLoadedMetadata={fitNativeRatio} /></div>;
+  return <>
+    <div className="video-wrap">
+      <video ref={videoRef} src={task.videoUrl} controls playsInline preload="metadata" />
+      <button type="button" className="video-fullscreen-trigger" onClick={playFullscreen} aria-label="全屏播放原视频">
+        <span><Maximize2 /> 点击全屏播放</span>
+      </button>
+    </div>
+    {fullscreenError && <div className="video-fullscreen-error" role="status">{fullscreenError}</div>}
+  </>;
 }
 function Toggle({ label, value, onChange }) { return <label className="switch-label"><span>{label}</span><button type="button" className={`switch ${value ? 'on' : ''}`} onClick={() => onChange(!value)}><span /></button></label>; }
 function EmptyResult() { return <div className="empty-result"><div className="film-icon"><Film /></div><h3>视频将在这里出现</h3><p>提交后可以关闭页面，服务器会继续排队和查询。</p></div>; }
