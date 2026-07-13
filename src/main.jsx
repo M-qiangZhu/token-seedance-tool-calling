@@ -1,275 +1,227 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  Check, ChevronDown, CircleAlert, Clock3, Copy, Download, ExternalLink,
-  Film, KeyRound, LoaderCircle, Play, RefreshCw, Settings2, Sparkles, Wifi
+  Activity, Check, CircleAlert, Clock3, Copy, Download, ExternalLink, Film, Gauge,
+  KeyRound, LayoutDashboard, LoaderCircle, LogOut, Play, RefreshCw, Save, Settings2,
+  ShieldCheck, Sparkles, UserPlus, Users, Wifi
 } from 'lucide-react';
 import './styles.css';
 
-const TASKS_KEY = 'tokenhub-seedance-tasks';
-const PUBLIC_CONFIG_KEY = 'tokenhub-seedance-config';
-const ACTIVE_STATES = new Set(['PENDING', 'RUNNING']);
+const ACTIVE_STATES = new Set(['LOCAL_QUEUED', 'SUBMITTING', 'PENDING', 'RUNNING', 'AUTH_REQUIRED']);
 
 function App() {
-  const saved = readSession(PUBLIC_CONFIG_KEY, {});
-  const [config, setConfig] = useState({
-    url: saved.url || '',
-    apiKey: '',
-    model: saved.model || ''
-  });
+  const [auth, setAuth] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { api('/api/auth/me').then(setAuth).catch(() => setAuth(null)).finally(() => setLoading(false)); }, []);
+  if (loading) return <PageLoader text="正在连接部门工作台…" />;
+  if (!auth) return <Login onLogin={setAuth} />;
+  if (auth.user.mustChangePassword) return <ChangePassword auth={auth} onChanged={(user) => setAuth({ ...auth, user })} />;
+  return <Portal auth={auth} onLogout={() => setAuth(null)} />;
+}
+
+function Login({ onLogin }) {
+  const [form, setForm] = useState({ username: '', password: '' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (event) => {
+    event.preventDefault(); setBusy(true); setError('');
+    try { onLogin(await api('/api/auth/login', { method: 'POST', body: form })); }
+    catch (reason) { setError(reason.message); } finally { setBusy(false); }
+  };
+  return <div className="auth-page"><section className="auth-card">
+    <div className="auth-logo"><Sparkles /> 江苏电信 TokenHub</div>
+    <h1>Seedance 部门工作台</h1><p>使用管理员分配的账号登录。API Key仅保存在本次服务器会话内。</p>
+    {error && <InlineError text={error} />}
+    <form onSubmit={submit} className="auth-form">
+      <label>用户名<input autoFocus autoComplete="username" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} /></label>
+      <label>密码<input type="password" autoComplete="current-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
+      <button className="button primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <ShieldCheck />} 登录</button>
+    </form>
+  </section></div>;
+}
+
+function ChangePassword({ auth, onChanged }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const submit = async (event) => {
+    event.preventDefault(); setError('');
+    try { const data = await api('/api/auth/change-password', { method: 'POST', csrf: auth.csrfToken, body: { password } }); onChanged(data.user); }
+    catch (reason) { setError(reason.message); }
+  };
+  return <div className="auth-page"><section className="auth-card"><KeyRound size={36} />
+    <h1>请修改初始密码</h1><p>新密码至少10位，并同时包含字母和数字。</p>{error && <InlineError text={error} />}
+    <form onSubmit={submit} className="auth-form"><label>新密码<input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label><button className="button primary">保存新密码</button></form>
+  </section></div>;
+}
+
+function Portal({ auth, onLogout }) {
+  const [view, setView] = useState('studio');
+  const logout = async () => { try { await api('/api/auth/logout', { method: 'POST', csrf: auth.csrfToken }); } finally { onLogout(); } };
+  return <>
+    <nav className="topbar"><div className="topbar-brand"><Sparkles size={18} /> Seedance 部门工作台</div><div className="topbar-actions">
+      <button className={view === 'studio' ? 'active' : ''} onClick={() => setView('studio')}><Film size={16} /> 视频生成</button>
+      {auth.user.role === 'ADMIN' && <button className={view === 'admin' ? 'active' : ''} onClick={() => setView('admin')}><LayoutDashboard size={16} /> 管理后台</button>}
+      <span className="user-pill">{auth.user.username} · {auth.user.role}</span><button onClick={logout}><LogOut size={16} /> 退出</button>
+    </div></nav>
+    {view === 'admin' ? <AdminPanel auth={auth} /> : <Studio auth={auth} />}
+  </>;
+}
+
+function Studio({ auth }) {
+  const [config, setConfig] = useState({ url: 'https://aigw.telecomjs.com/v1/videos/generations', apiKey: '', model: '' });
+  const [models, setModels] = useState([]);
   const [configured, setConfigured] = useState(false);
   const [maskedKey, setMaskedKey] = useState('');
-  const [models, setModels] = useState([]);
-  const [settingsOpen, setSettingsOpen] = useState(true);
-  const [configBusy, setConfigBusy] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
   const [notice, setNotice] = useState(null);
-  const [form, setForm] = useState({
-    prompt: '', resolution: '720p', ratio: '16:9', duration: '5', generateAudio: false, watermark: false
-  });
+  const [tasks, setTasks] = useState([]);
   const [submitting, setSubmitting] = useState(false);
-  const [tasks, setTasks] = useState(() => readSession(TASKS_KEY, []));
-  const polling = useRef(new Set());
+  const [form, setForm] = useState({ prompt: '', resolution: '720p', ratio: '16:9', duration: 5, generateAudio: false, watermark: false });
+  const lastDiscovery = useRef('');
+
+  const refreshTasks = useCallback(async () => {
+    try { const data = await api('/api/video/tasks'); setTasks(data.tasks); }
+    catch (error) { if (error.status !== 401) setNotice({ type: 'error', text: error.message }); }
+  }, []);
 
   useEffect(() => {
-    api('/api/config').then((data) => {
-      if (!data.configured) return;
-      setConfigured(true);
-      setMaskedKey(data.config.apiKeyMasked);
-      setConfig((current) => ({
-        ...current,
-        url: data.config.submitUrl,
-        model: data.config.model
-      }));
-      setSettingsOpen(false);
+    Promise.all([api('/api/config'), api('/api/video/tasks')]).then(([saved, taskData]) => {
+      setTasks(taskData.tasks);
+      if (saved.configured) {
+        setConfigured(true); setMaskedKey(saved.config.apiKeyMasked); setModels(saved.config.models || []);
+        setConfig((current) => ({ ...current, url: saved.config.submitUrl, model: saved.config.model }));
+      }
     }).catch(() => {});
   }, []);
 
-  useEffect(() => writeSession(TASKS_KEY, tasks), [tasks]);
-  useEffect(() => writeSession(PUBLIC_CONFIG_KEY, { url: config.url, model: config.model }), [config.url, config.model]);
+  useEffect(() => {
+    if (!tasks.some((task) => ACTIVE_STATES.has(task.status))) return undefined;
+    const timer = window.setInterval(refreshTasks, 5000);
+    return () => window.clearInterval(timer);
+  }, [tasks, refreshTasks]);
 
-  const saveConfig = async ({ discover = false } = {}) => {
-    setConfigBusy(true);
-    setNotice(null);
+  const discover = useCallback(async (automatic = false) => {
+    const signature = `${config.url}|${config.apiKey}`;
+    if (!config.apiKey || config.apiKey.length < 8 || !isHttpUrl(config.url) || (automatic && signature === lastDiscovery.current)) return;
+    lastDiscovery.current = signature; setDiscovering(true); setNotice(null);
     try {
-      const savedConfig = await api('/api/config', {
-        method: 'POST', body: JSON.stringify(config)
-      });
-      setConfigured(true);
-      setMaskedKey(savedConfig.config.apiKeyMasked);
-      setConfig((current) => ({ ...current, url: savedConfig.config.submitUrl, apiKey: '' }));
-      if (discover) {
-        const discovered = await api('/api/models/discover', { method: 'POST' });
-        setModels(discovered.models);
-        const videoModels = discovered.models.filter(isVideoModel);
-        setNotice({ type: 'success', text: `Key 验证成功，发现 ${discovered.models.length} 个模型${videoModels.length ? `，其中 ${videoModels.length} 个可能支持视频` : ''}。模型可见不代表视频生成路由已开通。` });
-      } else {
-        setNotice({ type: 'success', text: '配置已保存到本机内存，本页不会持久化 API Key。' });
-        setSettingsOpen(false);
-      }
-    } catch (error) {
-      setNotice({ type: 'error', text: error.message });
-    } finally {
-      setConfigBusy(false);
-    }
-  };
-
-  const submitTask = async (event) => {
-    event.preventDefault();
-    if (!configured) {
-      setSettingsOpen(true);
-      setNotice({ type: 'error', text: '请先保存 TokenHub 配置。' });
-      return;
-    }
-    setSubmitting(true);
-    setNotice(null);
-    try {
-      const data = await api('/api/video/tasks', {
-        method: 'POST',
-        body: JSON.stringify({ ...form, model: config.model })
-      });
-      setTasks((current) => [data.task, ...current.filter((item) => item.id !== data.task.id)]);
-      setNotice({ type: 'success', text: '视频任务已提交，系统将每 10 秒自动查询一次。' });
-    } catch (error) {
-      setNotice({ type: 'error', text: error.message });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const pollTask = useCallback(async (id, manual = false) => {
-    if (polling.current.has(id)) return;
-    polling.current.add(id);
-    try {
-      const data = await api(`/api/video/tasks/${encodeURIComponent(id)}`);
-      setTasks((current) => current.map((item) => item.id === id ? data.task : item));
-    } catch (error) {
-      if (manual || error.status === 401 || error.status === 404) {
-        setNotice({ type: 'error', text: error.message });
-      }
-    } finally {
-      polling.current.delete(id);
-    }
-  }, []);
+      const data = await api('/api/config/discover', { method: 'POST', csrf: auth.csrfToken, body: { url: config.url, apiKey: config.apiKey } });
+      setConfigured(true); setMaskedKey(data.config.apiKeyMasked); setModels(data.models); setConfig((current) => ({ ...current, apiKey: '', url: data.config.submitUrl, model: data.config.model }));
+      const selected = data.models.find((item) => item.id === data.config.model) || data.models[0];
+      setForm((current) => ({ ...current, resolution: selected.defaultResolution }));
+      setNotice({ type: 'success', text: `连接成功，发现 ${data.models.length} 个可用 Seedance 模型。` });
+    } catch (error) { setNotice({ type: 'error', text: error.message }); }
+    finally { setDiscovering(false); }
+  }, [auth.csrfToken, config.apiKey, config.url]);
 
   useEffect(() => {
-    const active = tasks.filter((task) => ACTIVE_STATES.has(task.status));
-    if (!active.length || !configured) return undefined;
-    const timer = window.setInterval(() => active.forEach((task) => pollTask(task.id)), 10_000);
-    return () => window.clearInterval(timer);
-  }, [tasks, configured, pollTask]);
+    if (!config.apiKey) return undefined;
+    const timer = window.setTimeout(() => discover(true), 800);
+    return () => window.clearTimeout(timer);
+  }, [config.apiKey, config.url, discover]);
 
-  const videoModels = models.filter(isVideoModel);
-  const anyActive = tasks.some((task) => ACTIVE_STATES.has(task.status));
+  const selectModel = async (model) => {
+    const descriptor = models.find((item) => item.id === model);
+    setConfig((current) => ({ ...current, model }));
+    if (descriptor) setForm((current) => ({ ...current, resolution: descriptor.defaultResolution }));
+    try { await api('/api/config/model', { method: 'PUT', csrf: auth.csrfToken, body: { model } }); }
+    catch (error) { setNotice({ type: 'error', text: error.message }); }
+  };
 
-  return (
-    <main>
-      <header className="hero">
-        <div className="brand"><Sparkles size={18} /> 江苏电信 TokenHub</div>
-        <div className="hero-copy">
-          <span className="eyebrow">SEEDANCE VIDEO STUDIO</span>
-          <h1>把一句想法，变成一段画面。</h1>
-          <p>配置你的 TokenHub 网关，提交文生视频任务，并在同一个页面等待、预览和保存结果。</p>
-        </div>
-        <div className={`connection ${configured ? 'online' : ''}`}>
-          <span className="connection-dot" />
-          {configured ? `配置已就绪 · ${maskedKey}` : '等待配置'}
-        </div>
-      </header>
+  const submit = async (event) => {
+    event.preventDefault(); setSubmitting(true); setNotice(null);
+    try {
+      const data = await api('/api/video/tasks', { method: 'POST', csrf: auth.csrfToken, body: { ...form, model: config.model } });
+      setTasks((current) => [data.task, ...current]);
+      setForm((current) => ({ ...current, prompt: '' }));
+      setNotice({ type: 'success', text: `任务已进入队列，当前位置约为 ${data.queuePosition}。页面关闭后后台仍会继续处理。` });
+    } catch (error) { setNotice({ type: 'error', text: error.message }); }
+    finally { setSubmitting(false); }
+  };
 
-      {notice && <div className={`notice ${notice.type}`}>
-        {notice.type === 'success' ? <Check size={18} /> : <CircleAlert size={18} />}
-        <span>{notice.text}</span>
-        <button onClick={() => setNotice(null)} aria-label="关闭提示">×</button>
-      </div>}
-
-      <section className="settings card">
-        <button className="section-toggle" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>
-          <span className="section-title"><Settings2 size={19} /> 连接配置</span>
-          <span className="settings-summary">{configured ? `${shortUrl(config.url)} · ${config.model}` : '填写 URL、API Key 和模型名称'}</span>
-          <ChevronDown className={settingsOpen ? 'rotated' : ''} size={19} />
-        </button>
-        {settingsOpen && <div className="settings-body">
-          <div className="field span-2">
-            <label htmlFor="gateway-url">文生视频 URL</label>
-            <div className="input-icon"><Wifi size={17} /><input id="gateway-url" type="url" placeholder="https://网关地址/v1 或完整生成地址" value={config.url} onChange={(e) => setConfig({ ...config, url: e.target.value })} /></div>
-            <small>支持 Base URL，或以 /v1/videos/generations 结尾的完整地址</small>
-          </div>
-          <div className="field">
-            <label htmlFor="api-key">API Key</label>
-            <div className="input-icon"><KeyRound size={17} /><input id="api-key" type="password" autoComplete="off" placeholder={configured ? `${maskedKey}（留空保持不变）` : '仅保存在本机服务内存'} value={config.apiKey} onChange={(e) => setConfig({ ...config, apiKey: e.target.value })} /></div>
-          </div>
-          <div className="field">
-            <label htmlFor="model">Seedance 模型名称</label>
-            <input id="model" list="video-models" placeholder="例如平台模型详情页中的名称" value={config.model} onChange={(e) => setConfig({ ...config, model: e.target.value })} />
-            <datalist id="video-models">{(videoModels.length ? videoModels : models).map((model) => <option key={model} value={model} />)}</datalist>
-          </div>
-          <div className="settings-actions span-2">
-            <button className="button secondary" disabled={configBusy} onClick={() => saveConfig({ discover: true })}>
-              {configBusy ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} 保存并检查模型
-            </button>
-            <button className="button primary compact" disabled={configBusy} onClick={() => saveConfig()}>
-              保存配置
-            </button>
-          </div>
-        </div>}
-      </section>
-
-      <div className="workspace">
-        <section className="composer card">
-          <div className="section-heading">
-            <div><span className="step">01</span><h2>描述你想看到的画面</h2></div>
-            <span className="model-chip">{config.model || '未选择模型'}</span>
-          </div>
-          <form onSubmit={submitTask}>
-            <div className="prompt-wrap">
-              <textarea required maxLength={5000} placeholder="例如：清晨的南京长江大桥笼罩在薄雾中，镜头沿江面缓慢向前推进，电影感，柔和自然光……" value={form.prompt} onChange={(e) => setForm({ ...form, prompt: e.target.value })} />
-              <span className="char-count">{form.prompt.length} / 5000</span>
-            </div>
-            <div className="parameter-grid">
-              <label>分辨率<select value={form.resolution} onChange={(e) => setForm({ ...form, resolution: e.target.value })}>
-                <option value="720p">720p</option>
-                <option value="480p">480p</option>
-              </select></label>
-              <label>画面比例<select value={form.ratio} onChange={(e) => setForm({ ...form, ratio: e.target.value })}>
-                <option value="16:9">16:9 横屏</option>
-                <option value="9:16">9:16 竖屏</option>
-                <option value="1:1">1:1 方形</option>
-                <option value="4:3">4:3</option>
-                <option value="3:4">3:4</option>
-                <option value="21:9">21:9 超宽屏</option>
-              </select></label>
-              <label>时长（秒）<input type="number" min="4" max="15" step="1" value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })} /></label>
-              <label className="switch-label"><span>生成音频</span><button type="button" className={`switch ${form.generateAudio ? 'on' : ''}`} onClick={() => setForm({ ...form, generateAudio: !form.generateAudio })} aria-pressed={form.generateAudio}><span /></button></label>
-              <label className="switch-label"><span>添加水印</span><button type="button" className={`switch ${form.watermark ? 'on' : ''}`} onClick={() => setForm({ ...form, watermark: !form.watermark })} aria-pressed={form.watermark}><span /></button></label>
-            </div>
-            <p className="model-hint">Seedance 2.0 Mini 支持 480p / 720p、4–15 秒；该协议不发送反向提示词和随机种子。</p>
-            <button className="generate" disabled={submitting || anyActive || !configured}>
-              {submitting ? <LoaderCircle className="spin" size={20} /> : <Play size={19} fill="currentColor" />}
-              {submitting ? '正在提交…' : anyActive ? '已有任务正在生成' : configured ? '开始生成视频' : '请先完成连接配置'}
-            </button>
-            <p className="cost-hint">提交会产生真实模型调用费用，请在确认参数后操作。</p>
-          </form>
-        </section>
-
-        <section className="results card">
-          <div className="section-heading"><div><span className="step">02</span><h2>生成结果</h2></div><span className="task-count">{tasks.length} 个任务</span></div>
-          {!tasks.length ? <EmptyResult /> : <div className="task-list">
-            {tasks.map((task) => <TaskCard key={task.id} task={task} onRefresh={() => pollTask(task.id, true)} />)}
-          </div>}
-        </section>
-      </div>
-
-      <footer>API Key 不写入磁盘 · 任务链接由 TokenHub 返回 · 请勿在公共设备保存敏感配置</footer>
-    </main>
-  );
+  const descriptor = models.find((item) => item.id === config.model);
+  return <main>
+    <header className="hero compact-hero"><div className="brand"><Sparkles size={18} /> 江苏电信 TokenHub</div><div className="hero-copy"><span className="eyebrow">SEEDANCE VIDEO STUDIO</span><h1>把一句想法，变成一段画面。</h1><p>账号隔离、后台排队、自动轮询，并按 TokenHub真实用量核算费用。</p></div><div className={`connection ${configured ? 'online' : ''}`}><span className="connection-dot" />{configured ? `已连接 · ${maskedKey}` : '等待配置'}</div></header>
+    {notice && <Notice notice={notice} onClose={() => setNotice(null)} />}
+    <section className="settings card"><div className="settings-body always-open">
+      <div className="field span-2"><label>文生视频 URL</label><div className="input-icon"><Wifi size={17} /><input type="url" value={config.url} onChange={(event) => setConfig({ ...config, url: event.target.value })} /></div></div>
+      <div className="field"><label>API Key</label><div className="input-icon"><KeyRound size={17} /><input type="password" autoComplete="off" placeholder={configured ? `${maskedKey}（重新填写可更换）` : '停止输入800毫秒后自动检测'} value={config.apiKey} onChange={(event) => setConfig({ ...config, apiKey: event.target.value })} /></div><small>仅保存在服务器内存，不写入数据库或浏览器</small></div>
+      <div className="field"><label>Seedance 模型名称</label><select value={config.model} disabled={!models.length} onChange={(event) => selectModel(event.target.value)}>{!models.length && <option value="">填写 Key 后自动发现</option>}{models.map((model) => <option key={model.id} value={model.id}>{model.label} · {model.id}</option>)}</select></div>
+      <div className="settings-actions span-2"><button className="button secondary" disabled={discovering || !config.apiKey} onClick={() => discover(false)}>{discovering ? <LoaderCircle className="spin" /> : <RefreshCw />} 重新检测模型</button></div>
+    </div></section>
+    <div className="workspace">
+      <section className="composer card"><div className="section-heading"><div><span className="step">01</span><h2>描述你想看到的画面</h2></div><span className="model-chip">{descriptor?.label || '未选择模型'}</span></div>
+        <form onSubmit={submit}><div className="prompt-wrap"><textarea required maxLength={5000} value={form.prompt} onChange={(event) => setForm({ ...form, prompt: event.target.value })} placeholder="例如：清晨的南京长江大桥笼罩在薄雾中，镜头沿江面缓慢向前推进，电影感……" /><span className="char-count">{form.prompt.length} / 5000</span></div>
+          <div className="parameter-grid"><label>分辨率<select value={form.resolution} onChange={(event) => setForm({ ...form, resolution: event.target.value })}>{(descriptor?.resolutions || ['720p']).map((value) => <option key={value} value={value}>{value.toUpperCase()}</option>)}</select></label>
+            <label>画面比例<select value={form.ratio} onChange={(event) => setForm({ ...form, ratio: event.target.value })}>{['16:9','9:16','1:1','4:3','3:4','21:9'].map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label>时长（秒）<input type="number" min="4" max="15" value={form.duration} onChange={(event) => setForm({ ...form, duration: Number(event.target.value) })} /></label>
+            <Toggle label="生成音频" value={form.generateAudio} onChange={(value) => setForm({ ...form, generateAudio: value })} />
+            <Toggle label="添加水印" value={form.watermark} onChange={(value) => setForm({ ...form, watermark: value })} />
+          </div><p className="model-hint">{descriptor ? `${descriptor.label} 支持 ${descriptor.resolutions.join(' / ')}、4–15秒。` : '请先配置并选择模型。'}</p>
+          <button className="generate" disabled={submitting || !configured || !descriptor}>{submitting ? <LoaderCircle className="spin" /> : <Play fill="currentColor" />} {submitting ? '正在入队…' : '开始生成视频'}</button><p className="cost-hint">提交会产生真实模型调用费用；排队任务由服务器统一控制并发。</p>
+        </form></section>
+      <section className="results card"><div className="section-heading"><div><span className="step">02</span><h2>我的任务</h2></div><button className="icon-button" onClick={refreshTasks}><RefreshCw size={16} /></button></div>{tasks.length ? <div className="task-list">{tasks.map((task) => <TaskCard key={task.id} task={task} />)}</div> : <EmptyResult />}</section>
+    </div><footer>API Key不落盘 · 任务记录保留90天 · 视频链接通常仅有效24小时</footer>
+  </main>;
 }
 
-function EmptyResult() {
-  return <div className="empty-result"><div className="film-icon"><Film size={31} /></div><h3>视频将在这里出现</h3><p>提交任务后，可以离开页面做其他工作。生成过程中我们会自动更新状态。</p></div>;
+function AdminPanel({ auth }) {
+  const [data, setData] = useState({ users: [], pricing: [], settings: {}, tasks: [], dashboard: {} });
+  const [notice, setNotice] = useState(null);
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'USER' });
+  const load = useCallback(async () => {
+    try {
+      const [users, pricing, settings, tasks, dashboard] = await Promise.all(['/api/admin/users','/api/admin/pricing','/api/admin/settings','/api/admin/tasks','/api/admin/dashboard'].map((url) => api(url)));
+      setData({ users: users.users, pricing: pricing.pricing, settings: settings.settings, tasks: tasks.tasks, dashboard: dashboard.dashboard });
+    } catch (error) { setNotice({ type: 'error', text: error.message }); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const createUser = async (event) => { event.preventDefault(); try { await api('/api/admin/users', { method: 'POST', csrf: auth.csrfToken, body: newUser }); setNewUser({ username: '', password: '', role: 'USER' }); setNotice({ type: 'success', text: '账号已创建，首次登录将要求修改密码。' }); load(); } catch (error) { setNotice({ type: 'error', text: error.message }); } };
+  const updateUser = async (id, patch) => { try { await api(`/api/admin/users/${id}`, { method: 'PATCH', csrf: auth.csrfToken, body: patch }); load(); } catch (error) { setNotice({ type: 'error', text: error.message }); } };
+  return <main className="admin-main"><header className="admin-heading"><div><span className="eyebrow">ADMIN CONSOLE</span><h1>部门使用与费用管理</h1><p>管理员只能查看任务元数据，无法读取同事的完整提示词和视频地址。</p></div><button className="button secondary" onClick={load}><RefreshCw /> 刷新</button></header>{notice && <Notice notice={notice} onClose={() => setNotice(null)} />}
+    <DashboardCards dashboard={data.dashboard} />
+    <section className="admin-grid"><div className="card admin-card"><div className="section-heading"><div><Users /><h2>账号管理</h2></div></div><form className="inline-form" onSubmit={createUser}><input placeholder="用户名" value={newUser.username} onChange={(event) => setNewUser({ ...newUser, username: event.target.value })} /><input type="password" placeholder="临时密码" value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} /><select value={newUser.role} onChange={(event) => setNewUser({ ...newUser, role: event.target.value })}><option>USER</option><option>ADMIN</option></select><button className="button primary"><UserPlus /> 新建</button></form><div className="table-wrap"><table><thead><tr><th>账号</th><th>角色</th><th>状态</th><th>操作</th></tr></thead><tbody>{data.users.map((user) => <tr key={user.id}><td>{user.username}</td><td>{user.role}</td><td>{user.disabled ? '已禁用' : user.mustChangePassword ? '待改密码' : '正常'}</td><td><button disabled={user.id === auth.user.id} onClick={() => updateUser(user.id, { disabled: !user.disabled })}>{user.disabled ? '启用' : '禁用'}</button></td></tr>)}</tbody></table></div></div>
+      <PricingCard pricing={data.pricing} auth={auth} onSaved={load} onError={(text) => setNotice({ type: 'error', text })} />
+    </section>
+    <SettingsCard settings={data.settings} auth={auth} onSaved={load} />
+    <section className="card admin-card"><div className="section-heading"><div><Activity /><h2>最近任务（已脱敏）</h2></div></div><div className="table-wrap"><table><thead><tr><th>时间</th><th>用户ID</th><th>模型</th><th>分辨率</th><th>状态</th><th>Token</th><th>费用</th></tr></thead><tbody>{data.tasks.map((task) => <tr key={task.id}><td>{formatDate(task.createdAt, true)}</td><td className="mono">{task.userId.slice(0, 8)}</td><td>{shortModel(task.model)}</td><td>{task.resolution}</td><td>{statusText(task.status)}</td><td>{task.cost?.totalTokens ?? '—'}</td><td>{task.cost ? `¥${task.cost.totalCost.toFixed(4)}` : '—'}</td></tr>)}</tbody></table></div></section>
+  </main>;
 }
 
-function TaskCard({ task, onRefresh }) {
-  const active = ACTIVE_STATES.has(task.status);
-  const statusText = { PENDING: '排队中', RUNNING: '生成中', SUCCEEDED: '已完成', FAILED: '失败', UNKNOWN: '状态未知' }[task.status] || task.status;
-  const copyUrl = async () => task.videoUrl && navigator.clipboard.writeText(task.videoUrl);
-  return <article className={`task ${task.status.toLowerCase()}`}>
-    <div className="task-top">
-      <div className="task-status">{active ? <LoaderCircle className="spin" size={17} /> : task.status === 'SUCCEEDED' ? <Check size={17} /> : <CircleAlert size={17} />} {statusText}</div>
-      <button className="icon-button" onClick={onRefresh} disabled={active && false} title="立即刷新"><RefreshCw size={16} /></button>
-    </div>
-    {task.videoUrl && <div className="video-wrap"><video src={task.videoUrl} controls preload="metadata" /></div>}
-    <p className="task-prompt">{task.prompt}</p>
-    <div className="task-meta"><span><Clock3 size={14} /> {formatDate(task.createdAt)}</span><span>{task.model}</span></div>
-    {task.status === 'FAILED' && <div className="task-error">{task.message || task.code || '平台未返回具体失败原因'}</div>}
-    {task.videoUrl && <div className="video-actions">
-      <button onClick={copyUrl}><Copy size={15} /> 复制链接</button>
-      <a href={task.videoUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} /> 打开原视频</a>
-      <a href={task.videoUrl} download><Download size={15} /> 下载</a>
-    </div>}
-    <div className="task-id" title={task.id}>任务 ID：{task.id}</div>
-    {task.status === 'SUCCEEDED' && <p className="expiry">视频链接通常仅有效 24 小时，请及时保存。</p>}
-  </article>;
+function PricingCard({ pricing, auth, onSaved, onError }) {
+  const [rows, setRows] = useState(pricing);
+  useEffect(() => setRows(pricing), [pricing]);
+  const save = async (row) => { try { await api('/api/admin/pricing', { method: 'PUT', csrf: auth.csrfToken, body: row }); onSaved(); } catch (error) { onError(error.message); } };
+  const change = (index, field, value) => setRows((current) => current.map((row, idx) => idx === index ? { ...row, [field]: Number(value) } : row));
+  return <div className="card admin-card"><div className="section-heading"><div><Gauge /><h2>Token单价</h2></div></div><div className="table-wrap"><table><thead><tr><th>模型</th><th>分辨率</th><th>输入/百万</th><th>输出/百万</th><th></th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.model}-${row.resolution}`}><td>{shortModel(row.model)}</td><td>{row.resolution}</td><td><input type="number" min="0" step="0.01" value={row.inputRate} onChange={(event) => change(index, 'inputRate', event.target.value)} /></td><td><input type="number" min="0" step="0.01" value={row.outputRate} onChange={(event) => change(index, 'outputRate', event.target.value)} /></td><td><button onClick={() => save(row)}><Save size={15} /></button></td></tr>)}</tbody></table></div></div>;
 }
 
-async function api(url, options) {
-  const response = await fetch(url, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) }, ...options });
+function SettingsCard({ settings, auth, onSaved }) {
+  const [form, setForm] = useState(settings);
+  useEffect(() => setForm(settings), [settings]);
+  const fields = [['globalActiveLimit','全局活跃'],['perUserActiveLimit','每人活跃'],['perUserQueueLimit','每人排队'],['perKeyActiveLimit','同Key活跃'],['globalQueueLimit','全局排队']];
+  const save = async () => { await api('/api/admin/settings', { method: 'PUT', csrf: auth.csrfToken, body: form }); onSaved(); };
+  return <section className="card admin-card"><div className="section-heading"><div><Settings2 /><h2>并发与队列</h2></div><button className="button primary compact" onClick={save}><Save /> 保存</button></div><div className="settings-row">{fields.map(([key,label]) => <label key={key}>{label}<input type="number" min="1" value={form[key] || ''} onChange={(event) => setForm({ ...form, [key]: Number(event.target.value) })} /></label>)}</div></section>;
+}
+
+function DashboardCards({ dashboard }) { const cards = [[Activity,'活跃任务',dashboard.active],[Clock3,'排队任务',dashboard.queued],[Check,'成功任务',dashboard.succeeded],[Gauge,'累计费用',`¥${Number(dashboard.totalCost || 0).toFixed(4)}`]]; return <div className="metrics">{cards.map(([Icon,label,value]) => <div className="metric" key={label}><Icon /><div><span>{label}</span><strong>{value ?? 0}</strong></div></div>)}</div>; }
+function TaskCard({ task }) { const active = ACTIVE_STATES.has(task.status); return <article className={`task ${task.status.toLowerCase()}`}><div className="task-top"><div className="task-status">{active ? <LoaderCircle className="spin" /> : task.status === 'SUCCEEDED' ? <Check /> : <CircleAlert />} {statusText(task.status)}</div><span className="model-chip">{task.resolution?.toUpperCase()}</span></div>{task.videoUrl && <div className="video-wrap"><video src={task.videoUrl} controls preload="metadata" /></div>}<p className="task-prompt">{task.prompt}</p><div className="task-meta"><span><Clock3 /> {formatDate(task.createdAt)}</span><span>{shortModel(task.model)}</span></div>{task.message && ['FAILED','UNKNOWN'].includes(task.status) && <div className="task-error">{task.message}</div>}{task.cost ? <div className="usage-box"><span>输入 {task.cost.promptTokens}</span><span>输出 {task.cost.completionTokens}</span><strong>¥{task.cost.totalCost.toFixed(4)}</strong></div> : task.status === 'SUCCEEDED' && <div className="usage-box muted">TokenHub未返回用量，无法精确计费</div>}{task.videoUrl && <div className="video-actions"><button onClick={() => navigator.clipboard.writeText(task.videoUrl)}><Copy />复制链接</button><a href={task.videoUrl} target="_blank" rel="noreferrer"><ExternalLink />打开</a><a href={task.videoUrl} download><Download />下载</a></div>}<div className="task-id">本地任务：{task.id}{task.remoteTaskId ? ` · 远端：${task.remoteTaskId}` : ''}</div></article>; }
+function Toggle({ label, value, onChange }) { return <label className="switch-label"><span>{label}</span><button type="button" className={`switch ${value ? 'on' : ''}`} onClick={() => onChange(!value)}><span /></button></label>; }
+function EmptyResult() { return <div className="empty-result"><div className="film-icon"><Film /></div><h3>视频将在这里出现</h3><p>提交后可以关闭页面，服务器会继续排队和查询。</p></div>; }
+function Notice({ notice, onClose }) { return <div className={`notice ${notice.type}`}>{notice.type === 'success' ? <Check /> : <CircleAlert />}<span>{notice.text}</span><button onClick={onClose}>×</button></div>; }
+function InlineError({ text }) { return <div className="inline-error"><CircleAlert />{text}</div>; }
+function PageLoader({ text }) { return <div className="page-loader"><LoaderCircle className="spin" /><span>{text}</span></div>; }
+
+async function api(url, options = {}) {
+  const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.csrf ? { 'X-CSRF-Token': options.csrf } : {}), ...(options.headers || {}) };
+  const response = await fetch(url, { credentials: 'same-origin', ...options, headers, body: options.body ? JSON.stringify(options.body) : undefined });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const requestId = data?.error?.requestId;
-    const suffix = requestId ? `（请求 ID：${requestId}）` : '';
-    const error = new Error(`${data?.error?.message || `请求失败（${response.status}）`}${suffix}`);
-    error.status = response.status;
-    error.code = data?.error?.code;
-    error.requestId = requestId;
-    throw error;
-  }
+  if (!response.ok) { const error = new Error(data?.error?.message || `请求失败（${response.status}）`); error.status = response.status; error.code = data?.error?.code; throw error; }
   return data;
 }
-
-function isVideoModel(model) { return /seedance|t2v|video|wan|happyhorse/i.test(model); }
-function shortUrl(value) { try { return new URL(value).host; } catch { return value || ''; } }
-function formatDate(value) { return value ? new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '-'; }
-function readSession(key, fallback) { try { return JSON.parse(sessionStorage.getItem(key)) ?? fallback; } catch { return fallback; } }
-function writeSession(key, value) { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch {} }
+function isHttpUrl(value) { try { return ['http:','https:'].includes(new URL(value).protocol); } catch { return false; } }
+function shortModel(value = '') { return value.replace('doubao-seedance-2-0-', '').replace('-260128','').replace('-260615','') || '—'; }
+function statusText(value) { return { LOCAL_QUEUED:'本地排队',SUBMITTING:'正在提交',PENDING:'远端排队',RUNNING:'生成中',AUTH_REQUIRED:'等待重新填写API Key',SUCCEEDED:'已完成',FAILED:'失败',UNKNOWN:'状态待核对' }[value] || value; }
+function formatDate(value, date = false) { return value ? new Intl.DateTimeFormat('zh-CN', date ? { month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit' } : { hour:'2-digit',minute:'2-digit' }).format(new Date(value)) : '—'; }
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);

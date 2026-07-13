@@ -1,171 +1,124 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import test from 'node:test';
 import { createApp } from '../server/app.js';
+import { MemoryStore } from '../server/store.js';
+import { createPromptCipher, hashPassword } from '../server/security.js';
 
-test('完整模拟创建、轮询和成功流程，响应不泄露 API Key', async (t) => {
-  const upstreamCalls = [];
+test('登录、自动发现模型、排队、后台提交和成功计费完整流程', async (t) => {
+  const calls = [];
   const diagnostics = [];
-  const logger = {
-    info: (...values) => diagnostics.push(values),
-    error: (...values) => diagnostics.push(values)
-  };
-  let pollCount = 0;
   const mockFetch = async (url, options) => {
-    upstreamCalls.push({ url, options });
-    if (url.endsWith('/models')) return json({ data: [{ id: 'seedance-1.0-pro' }] });
-    if (options.method === 'POST') return json({ output: { task_id: 'remote-123', task_status: 'PENDING' }, request_id: 'req-1' });
-    pollCount += 1;
-    return pollCount === 1
-      ? json({ output: { task_id: 'remote-123', task_status: 'RUNNING' } })
-      : json({ output: { task_id: 'remote-123', task_status: 'SUCCEEDED', video_url: 'https://cdn.example/video.mp4' }, usage: { duration: 5 } });
+    calls.push({ url, options });
+    if (url.endsWith('/models')) return json({ data: [
+      { id: 'doubao-seedance-2-0-mini-260615' },
+      { id: 'doubao-seedance-2-0-260128' },
+      { id: 'unrelated-model' }
+    ] });
+    if (options.method === 'POST') return json({ output: { task_id: 'remote-1', task_status: 'PENDING' }, request_id: 'request-1' });
+    return json({ output: { task_id: 'remote-1', task_status: 'SUCCEEDED', video_url: 'https://cdn.example/video.mp4' }, usage: { completion_tokens: 108900, total_tokens: 108900 } });
   };
+  const store = await seededStore();
+  await store.updateSettings({ pollIntervalMs: 1 });
+  const app = createApp({ store, fetchImpl: mockFetch, promptCipher: createPromptCipher('tests'), logger: captureLogger(diagnostics) });
+  const { base, close } = await listen(app); t.after(close);
 
-  const server = createApp({ fetchImpl: mockFetch, logger }).listen(0);
-  t.after(() => server.close());
-  await new Promise((resolve) => server.once('listening', resolve));
-  const base = `http://127.0.0.1:${server.address().port}`;
+  const auth = await login(base, 'member', 'MemberPass123');
+  const discovered = await request(base, '/api/config/discover', { method: 'POST', auth, body: { url: 'https://gateway.example/v1', apiKey: 'super-secret-key' } });
+  assert.equal(discovered.status, 200);
+  assert.deepEqual(discovered.body.models.map((item) => item.id), ['doubao-seedance-2-0-mini-260615', 'doubao-seedance-2-0-260128']);
+  assert.equal(JSON.stringify(discovered.body).includes('super-secret-key'), false);
 
-  const configResponse = await fetch(`${base}/api/config`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: 'https://gateway.example/v1', apiKey: 'super-secret-key', model: 'seedance-1.0-pro' })
-  });
-  const cookie = configResponse.headers.get('set-cookie').split(';')[0];
-  const configText = await configResponse.text();
-  assert.equal(configResponse.status, 200);
-  assert.equal(configText.includes('super-secret-key'), false);
-  assert.match(configText, /••••-key/);
-
-  const models = await request(base, '/api/models/discover', { method: 'POST', cookie });
-  assert.deepEqual(models.body.models, ['seedance-1.0-pro']);
-
-  const created = await request(base, '/api/video/tasks', {
-    method: 'POST', cookie,
-    body: {
-      prompt: '云海中的城市', resolution: '720p', ratio: '16:9', duration: 5,
-      generateAudio: false, watermark: false
-    }
-  });
+  const selected = await request(base, '/api/config/model', { method: 'PUT', auth, body: { model: 'doubao-seedance-2-0-mini-260615' } });
+  assert.equal(selected.status, 200);
+  const created = await request(base, '/api/video/tasks', { method: 'POST', auth, body: { prompt: '云海中的城市', model: 'doubao-seedance-2-0-mini-260615', resolution: '720p', ratio: '16:9', duration: 5, generateAudio: false, watermark: false } });
   assert.equal(created.status, 201);
-  assert.equal(created.body.task.status, 'PENDING');
-  assert.equal(created.body.task.prompt, '云海中的城市');
-  assert.equal(typeof upstreamCalls[1].options.body, 'string');
-  assert.deepEqual(JSON.parse(upstreamCalls[1].options.body), {
-    model: 'seedance-1.0-pro',
-    content: [{ type: 'text', text: '云海中的城市' }],
-    resolution: '720p',
-    ratio: '16:9',
-    duration: 5,
-    generate_audio: false,
-    watermark: false
-  });
-  assert.equal(upstreamCalls[1].options.headers['Content-Type'], 'application/json');
-  assert.equal(upstreamCalls[1].options.headers['X-DashScope-Async'], 'enable');
-  assert.equal(upstreamCalls[0].options.headers['X-DashScope-Async'], undefined);
+  assert.equal(created.body.task.status, 'LOCAL_QUEUED');
+  await settleWorker(app);
+  await app.locals.worker.tick();
+  await new Promise((resolve) => setTimeout(resolve, 3));
+  await app.locals.worker.tick();
 
-  const running = await request(base, '/api/video/tasks/remote-123', { cookie });
-  assert.equal(running.body.task.status, 'RUNNING');
-  const completed = await request(base, '/api/video/tasks/remote-123', { cookie });
+  const completed = await request(base, `/api/video/tasks/${created.body.task.id}`, { auth });
   assert.equal(completed.body.task.status, 'SUCCEEDED');
+  assert.equal(completed.body.task.remoteTaskId, 'remote-1');
   assert.equal(completed.body.task.videoUrl, 'https://cdn.example/video.mp4');
+  assert.equal(completed.body.task.cost.completionTokens, 108900);
+  assert.equal(completed.body.task.cost.totalCost, 2.5047);
+  assert.equal(completed.body.task.prompt, '云海中的城市');
 
-  assert.ok(upstreamCalls.every((call) => call.options.headers.Authorization === 'Bearer super-secret-key'));
-  assert.equal(upstreamCalls.slice(2).every((call) => call.options.headers['X-DashScope-Async'] === undefined), true);
-  assert.equal(upstreamCalls[1].options.body.includes('super-secret-key'), false);
-  const diagnosticText = JSON.stringify(diagnostics);
-  assert.equal(diagnosticText.includes('super-secret-key'), false);
-  assert.equal(diagnosticText.includes('云海中的城市'), false);
-  assert.match(diagnosticText, /bodyFields/);
+  const post = calls.find((call) => call.options.method === 'POST');
+  assert.deepEqual(JSON.parse(post.options.body), { model: 'doubao-seedance-2-0-mini-260615', content: [{ type: 'text', text: '云海中的城市' }], resolution: '720p', ratio: '16:9', duration: 5, generate_audio: false, watermark: false });
+  assert.equal(JSON.stringify(diagnostics).includes('super-secret-key'), false);
+  assert.equal(JSON.stringify(diagnostics).includes('云海中的城市'), false);
 });
 
-test('上游错误被转换为清晰且不含密钥的响应', async (t) => {
-  const mockFetch = async () => json({ error: { message: '模型没有权限：never-return-this', code: 'Forbidden' }, request_id: 'req-error' }, 403);
-  const server = createApp({ fetchImpl: mockFetch }).listen(0);
-  t.after(() => server.close());
-  await new Promise((resolve) => server.once('listening', resolve));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  const config = await fetch(`${base}/api/config`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: 'https://gateway.example/v1', apiKey: 'never-return-this', model: 'seedance' })
-  });
-  const cookie = config.headers.get('set-cookie').split(';')[0];
-  const result = await request(base, '/api/models/discover', { method: 'POST', cookie });
-  assert.equal(result.status, 403);
-  assert.equal(JSON.stringify(result.body).includes('never-return-this'), false);
-  assert.equal(result.body.error.message, '模型没有权限：[REDACTED]');
-  assert.equal(result.body.error.requestId, 'req-error');
+test('普通用户不能访问管理接口，管理员可创建用户和修改价格', async (t) => {
+  const store = await seededStore();
+  const app = createApp({ store, fetchImpl: async () => json({}), promptCipher: createPromptCipher('tests'), logger: silentLogger });
+  const { base, close } = await listen(app); t.after(close);
+  const member = await login(base, 'member', 'MemberPass123');
+  assert.equal((await request(base, '/api/admin/users', { auth: member })).status, 403);
+
+  const admin = await login(base, 'admin', 'AdminPass123');
+  const created = await request(base, '/api/admin/users', { method: 'POST', auth: admin, body: { username: 'new.user', password: 'Temporary123', role: 'USER' } });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.user.mustChangePassword, true);
+  assert.equal(JSON.stringify(created.body).includes('Temporary123'), false);
+
+  const pricing = await request(base, '/api/admin/pricing', { method: 'PUT', auth: admin, body: { model: 'doubao-seedance-2-0-260128', resolution: '4k', inputRate: 1.5, outputRate: 30 } });
+  assert.equal(pricing.body.pricing.version, 2);
+  assert.equal(pricing.body.pricing.outputRate, 30);
 });
 
-test('兼容方舟原生成功响应的视频地址', async (t) => {
-  const mockFetch = async (_url, options) => options.method === 'POST'
-    ? json({ id: 'ark-task', status: 'queued' })
-    : json({ id: 'ark-task', status: 'succeeded', content: { video_url: 'https://cdn.example/native.mp4' } });
-  const server = createApp({ fetchImpl: mockFetch, logger: silentLogger }).listen(0);
-  t.after(() => server.close());
-  await new Promise((resolve) => server.once('listening', resolve));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  const cookie = await configure(base);
-  const created = await request(base, '/api/video/tasks', {
-    method: 'POST', cookie, body: { prompt: '南京长江大桥', resolution: '720p', ratio: '16:9', duration: 5 }
-  });
-  assert.equal(created.body.task.id, 'ark-task');
-  const completed = await request(base, '/api/video/tasks/ark-task', { cookie });
-  assert.equal(completed.body.task.status, 'SUCCEEDED');
-  assert.equal(completed.body.task.videoUrl, 'https://cdn.example/native.mp4');
+test('CSRF、防重复用户名和登录限流生效', async (t) => {
+  const store = await seededStore();
+  const app = createApp({ store, promptCipher: createPromptCipher('tests'), logger: silentLogger });
+  const { base, close } = await listen(app); t.after(close);
+  const admin = await login(base, 'admin', 'AdminPass123');
+  const noCsrf = await request(base, '/api/admin/users', { method: 'POST', cookie: admin.cookie, body: { username: 'x-user', password: 'Temporary123' } });
+  assert.equal(noCsrf.status, 403);
+  const duplicate = await request(base, '/api/admin/users', { method: 'POST', auth: admin, body: { username: 'member', password: 'Temporary123' } });
+  assert.equal(duplicate.status, 409);
+
+  for (let index = 0; index < 5; index += 1) await request(base, '/api/auth/login', { method: 'POST', body: { username: 'none', password: 'bad' } });
+  const limited = await request(base, '/api/auth/login', { method: 'POST', body: { username: 'none', password: 'bad' } });
+  assert.equal(limited.status, 429);
 });
 
-test('网络中断和 2xx 缺少任务 ID 时不重复提交', async (t) => {
+test('不兼容分辨率在调用上游前被拒绝', async (t) => {
   let calls = 0;
-  const noIdServer = createApp({
-    fetchImpl: async () => { calls += 1; return json({ status: 'queued' }); },
-    logger: silentLogger
-  }).listen(0);
-  t.after(() => noIdServer.close());
-  await new Promise((resolve) => noIdServer.once('listening', resolve));
-  const noIdBase = `http://127.0.0.1:${noIdServer.address().port}`;
-  const noIdCookie = await configure(noIdBase);
-  const noId = await request(noIdBase, '/api/video/tasks', {
-    method: 'POST', cookie: noIdCookie, body: { prompt: '测试', resolution: '720p', ratio: '16:9', duration: 5 }
-  });
-  assert.equal(noId.status, 502);
+  const store = await seededStore();
+  const app = createApp({ store, fetchImpl: async (url) => { calls += 1; return url.endsWith('/models') ? json({ data: [{ id: 'doubao-seedance-2-0-260128' }] }) : json({}); }, promptCipher: createPromptCipher('tests'), logger: silentLogger });
+  const { base, close } = await listen(app); t.after(close);
+  const auth = await login(base, 'member', 'MemberPass123');
+  await request(base, '/api/config/discover', { method: 'POST', auth, body: { url: 'https://gateway.example/v1', apiKey: 'test-secret-key' } });
+  const invalid = await request(base, '/api/video/tasks', { method: 'POST', auth, body: { prompt: '测试', model: 'doubao-seedance-2-0-260128', resolution: '720p', duration: 5, ratio: '16:9' } });
+  assert.equal(invalid.status, 400);
+  assert.match(invalid.body.error.message, /1080p 或 4k/);
   assert.equal(calls, 1);
-
-  let networkCalls = 0;
-  const networkServer = createApp({
-    fetchImpl: async () => { networkCalls += 1; throw new Error('offline'); },
-    logger: silentLogger
-  }).listen(0);
-  t.after(() => networkServer.close());
-  await new Promise((resolve) => networkServer.once('listening', resolve));
-  const networkBase = `http://127.0.0.1:${networkServer.address().port}`;
-  const networkCookie = await configure(networkBase);
-  const network = await request(networkBase, '/api/video/tasks', {
-    method: 'POST', cookie: networkCookie, body: { prompt: '测试', resolution: '720p', ratio: '16:9', duration: 5 }
-  });
-  assert.equal(network.status, 502);
-  assert.equal(networkCalls, 1);
 });
 
-async function request(base, pathname, { method = 'GET', cookie, body } = {}) {
-  const response = await fetch(`${base}${pathname}`, {
-    method,
-    headers: { ...(cookie ? { Cookie: cookie } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
-    body: body ? JSON.stringify(body) : undefined
-  });
-  return { status: response.status, body: await response.json() };
+async function seededStore() {
+  const store = new MemoryStore();
+  await store.createUser({ id: crypto.randomUUID(), username: 'admin', passwordHash: await hashPassword('AdminPass123'), role: 'ADMIN', mustChangePassword: false });
+  await store.createUser({ id: crypto.randomUUID(), username: 'member', passwordHash: await hashPassword('MemberPass123'), role: 'USER', mustChangePassword: false });
+  return store;
 }
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+async function login(base, username, password) {
+  const result = await request(base, '/api/auth/login', { method: 'POST', body: { username, password } });
+  assert.equal(result.status, 200);
+  return { cookie: result.cookie, csrf: result.body.csrfToken };
 }
-
-async function configure(base) {
-  const response = await fetch(`${base}/api/config`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      url: 'https://gateway.example/v1', apiKey: 'test-secret-key', model: 'doubao-seedance-2-0-mini-260615'
-    })
-  });
-  return response.headers.get('set-cookie').split(';')[0];
+async function request(base, pathname, { method = 'GET', auth, cookie, body } = {}) {
+  const response = await fetch(`${base}${pathname}`, { method, headers: { ...((auth?.cookie || cookie) ? { Cookie: auth?.cookie || cookie } : {}), ...(auth?.csrf ? { 'X-CSRF-Token': auth.csrf } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  return { status: response.status, body: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
 }
-
+async function listen(app) {
+  const server = app.listen(0); await new Promise((resolve) => server.once('listening', resolve));
+  return { base: `http://127.0.0.1:${server.address().port}`, close: () => server.close() };
+}
+async function settleWorker(app) { await new Promise((resolve) => setTimeout(resolve, 15)); await app.locals.worker.tick(); }
+function json(data, status = 200) { return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } }); }
+function captureLogger(target) { return { info: (...values) => target.push(values), error: (...values) => target.push(values) }; }
 const silentLogger = { info() {}, error() {} };

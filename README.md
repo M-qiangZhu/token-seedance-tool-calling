@@ -1,60 +1,69 @@
-# 江苏电信 TokenHub Seedance 文生视频工具
+# TokenHub Seedance 部门工作台
 
-一个本机运行的中文 Web 工具，用于通过江苏电信 TokenHub 提交文生视频任务、自动查询生成状态并预览或保存结果。
+面向部门同事的文生视频工具：账号隔离、API Key自动发现模型、模型联动参数、服务端持久队列、Token与费用统计、管理员后台。
 
-## 快速开始
+## 支持模型
 
-需要 Node.js 20+ 和 pnpm。
+| 模型 | 分辨率 | 默认输出单价（元/百万Token） |
+|---|---|---:|
+| `doubao-seedance-2-0-260128` | 1080P / 4K | 51 / 26 |
+| `doubao-seedance-2-0-fast-260128` | 480P / 720P | 37 |
+| `doubao-seedance-2-0-mini-260615` | 480P / 720P | 23 |
+
+API Key仅保存在Node进程内存，服务器重启后需要重新填写。任务状态、远端任务ID、用量和费用保存在PostgreSQL；系统不会因为重启而重新创建远端任务。
+
+## 本地开发
+
+要求 Node.js 24+、pnpm 10+。开发时可使用内存存储：
 
 ```bash
+export BOOTSTRAP_ADMIN_USERNAME=admin
+export BOOTSTRAP_ADMIN_PASSWORD='ChangeThis123'
 pnpm install
 pnpm dev
 ```
 
-打开 <http://localhost:18080>。本地 API 运行在 <http://localhost:18081>，健康检查地址为 <http://localhost:18081/api/health>。
+- 前端：http://localhost:18080
+- 后端：http://localhost:18081
 
-如果这两个端口已被另一套 TokenHub 工具占用，可执行 `pnpm dev:alt`，改用前端 `18180` 和 API `18181`。
+开发内存模式重启会清空账号和任务。完整持久化验证使用 Docker Compose。
 
-在“连接配置”中填写：
-
-1. TokenHub Base URL（例如 `https://网关地址/v1`）或完整的 `/v1/videos/generations` 地址。
-2. 从 TokenHub “API 管理”中取得的 API Key。
-3. Seedance 模型详情页显示的准确模型名称。
-
-点击“保存并检查模型”可以调用 `/v1/models` 检查当前 Key 可见的模型。接口若不支持模型发现，也可以直接保存已确认的模型名称。
-
-## 可用命令
+## Docker运行
 
 ```bash
-pnpm dev      # 同时启动前端和 API
-pnpm dev:alt  # 端口冲突时改用 18180/18181
-pnpm test     # 运行单元和模拟上游测试
-pnpm build    # 构建前端生产文件
-pnpm start    # 从 API 服务提供已构建的前端（端口 18081）
-pnpm check    # 测试并构建
+cp .env.example .env
+# 修改.env中的所有密码与加密密钥
+docker compose up -d --build
+curl http://127.0.0.1:19405/api/health/ready
 ```
 
-生产模式先执行 `pnpm build`，再执行 `pnpm start`，访问 <http://localhost:18081>。
+生产环境由Nginx在 `19404` 提供HTTPS，反向代理到仅本机可访问的 `19405`。参考 [`deploy/nginx-seedance.conf`](deploy/nginx-seedance.conf)。PostgreSQL不映射到宿主机或公网。
 
-## 安全与费用
+公网IP证书使用Certbot 5.4以上版本和Let's Encrypt短周期证书。签发前必须确保公网 `80` 端口能访问 [`deploy/nginx-acme.conf`](deploy/nginx-acme.conf) 配置的ACME目录；证书签发成功后安装并启用 `deploy/seedance-certbot-renew.*` 定时续期单元。
 
-- API Key 只保存在 Node.js 进程内存，通过 HttpOnly 会话 Cookie 关联；不会写入源码、浏览器存储、日志或磁盘。
-- 会话默认 8 小时失效，服务重启后需要重新填写 API Key。
-- 浏览器 `sessionStorage` 只保存脱敏后的公开配置和当前任务信息，以便刷新页面后继续查看。
-- “开始生成视频”会产生真实 TokenHub 模型调用和相应费用。本项目的自动测试使用模拟上游，不会调用或计费。
-- TokenHub 返回的视频 URL 通常只有有限有效期，请生成成功后及时下载。
+若云安全组暂未开放 `80`，不得把登录页降级为明文HTTP。可临时使用 [`deploy/nginx-seedance-selfsigned.conf`](deploy/nginx-seedance-selfsigned.conf) 保持传输加密，但浏览器不会信任自签名证书；开放 `80` 后应尽快切换到受信任证书。
 
-## 接口协议
+## 管理员
 
-当前按 TokenHub 路由和 Seedance 2.0 原生请求结构实现：
+首次启动由 `.env` 中的 `BOOTSTRAP_ADMIN_USERNAME` 和 `BOOTSTRAP_ADMIN_PASSWORD` 创建管理员，首次登录强制修改密码。以后可以在后台创建用户，也可用命令重置管理员：
 
-- `POST /v1/videos/generations` 创建任务。
-- `GET /v1/videos/generations/task/{taskId}` 查询任务。
-- Seedance 模型使用 `application/json`，提示词放在顶层 `content: [{ type: "text", text: "..." }]` 中。
-- 创建请求携带 `X-DashScope-Async: enable`，并可使用顶层 `resolution`、`ratio`、`duration`、`generate_audio` 和 `watermark`。
-- `doubao-seedance-2-0-mini-260615` 仅接受 `480p/720p` 和 4–15 秒，不发送反向提示词或随机种子。
-- Wan/HappyHorse 等随附文档模型继续使用 `model`、`input.prompt` 和 `parameters`。
+```bash
+ADMIN_PASSWORD='NewTemporary123' pnpm admin:create admin
+```
 
-TokenHub 模型详情页当前对所有视频模型复用 Wan 示例，该示例不是 Seedance Mini 的请求体。
+## 验证
 
-模型详情请以 [Seedance 2.0 Mini（id=66）](https://token.telecomjs.com/modelDetail?id=66) 为准；`id=65` 是 Fast，不要混用模型或请求参数。Seedance 请求结构同时参考 [BytePlus 创建任务接口](https://docs.byteplus.com/en/docs/modelark/1520757)和 [Seedance 2.0 Mini 教程](https://docs.byteplus.com/en/docs/ModelArk/2291680)。
+```bash
+pnpm test
+pnpm build
+pnpm check
+```
+
+测试覆盖身份认证、CSRF、模型发现、Standard 4K、计费、权限隔离、不重复提交，以及100个排队任务下的20并发限制。测试使用模拟TokenHub，不产生真实调用费用。
+
+## 安全边界
+
+- 不在数据库、浏览器存储、响应或日志中保存API Key。
+- 管理员只能查看任务元数据和费用，不能查看用户的完整提示词与视频地址。
+- 提示词使用AES-256-GCM加密保存，任务明细保留90天。
+- 视频文件不经过本服务器代理或落盘。

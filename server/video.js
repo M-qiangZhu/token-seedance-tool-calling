@@ -1,6 +1,10 @@
 const TERMINAL_STATES = new Set(['SUCCEEDED', 'FAILED', 'UNKNOWN']);
 const SEEDANCE_RATIOS = new Set(['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', 'adaptive']);
-const MINI_RESOLUTIONS = new Set(['480p', '720p']);
+const MODEL_RESOLUTIONS = new Map([
+  ['doubao-seedance-2-0-260128', new Set(['1080p', '4k'])],
+  ['doubao-seedance-2-0-fast-260128', new Set(['480p', '720p'])],
+  ['doubao-seedance-2-0-mini-260615', new Set(['480p', '720p'])]
+]);
 
 export function normalizeGatewayUrl(value) {
   const raw = String(value || '').trim();
@@ -53,15 +57,12 @@ export function buildVideoPayload(input) {
     if (ratio && !SEEDANCE_RATIOS.has(ratio)) {
       throw new Error(`Seedance 不支持画面比例 ${ratio}`);
     }
-    if (/doubao-seedance-2-0-mini-260615/i.test(model)) {
-      if (resolution && !MINI_RESOLUTIONS.has(resolution)) {
-        throw new Error('Seedance 2.0 Mini 只支持 480p 或 720p');
-      }
-      if (duration !== undefined && (duration < 4 || duration > 15)) {
-        throw new Error('Seedance 2.0 Mini 视频时长必须在 4–15 秒之间');
-      }
-    } else if (duration !== undefined && duration <= 0) {
-      throw new Error('视频时长必须大于 0');
+    const allowed = MODEL_RESOLUTIONS.get(model);
+    if (allowed && resolution && !allowed.has(resolution)) {
+      throw new Error(`${model} 只支持 ${[...allowed].join(' 或 ')}`);
+    }
+    if (duration !== undefined && (duration < 4 || duration > 15)) {
+      throw new Error('Seedance 视频时长必须在 4–15 秒之间');
     }
 
     return cleanObject({
@@ -111,9 +112,11 @@ function parseSeedanceSize(value) {
 }
 
 function normalizeResolution(value) {
-  const resolution = String(value || '').trim();
+  const resolution = String(value || '').trim().toLowerCase();
   const match = resolution.match(/^(480|720|1080)p$/i);
-  return match ? `${match[1]}p` : resolution || undefined;
+  if (match) return `${match[1]}p`;
+  if (/^4k$/i.test(resolution)) return '4k';
+  return resolution || undefined;
 }
 
 function greatestCommonDivisor(left, right) {
