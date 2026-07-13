@@ -1,0 +1,23 @@
+{
+  "name": "tokenhub-seedance-video",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"PORT=18081 node --watch server/index.js\" \"vite --host 0.0.0.0 --port 18080 --strictPort\"",
+    "dev:alt": "concurrently -n api,web -c blue,green \"PORT=18181 node --watch server/index.js\" \"TOKENHUB_API_TARGET=http://localhost:18181 vite --host 0.0.0.0 --port 18180 --strictPort\"",
+    "build": "vite build",
+    "start": "NODE_ENV=production PORT=18081 node server/index.js",
+    "test": "node --test",
+    "check": "pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.2.1",
+    "express": "^5.2.1",
+    "lucide-react": "^0.561.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "vite": "^7.2.7"
+  }
+}
