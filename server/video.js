@@ -1,7 +1,7 @@
 const TERMINAL_STATES = new Set(['SUCCEEDED', 'FAILED', 'UNKNOWN']);
 const SEEDANCE_RATIOS = new Set(['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', 'adaptive']);
 const MODEL_RESOLUTIONS = new Map([
-  ['doubao-seedance-2-0-260128', new Set(['1080p', '4k'])],
+  ['doubao-seedance-2-0-260128', new Set(['480p', '720p', '1080p', '4k'])],
   ['doubao-seedance-2-0-fast-260128', new Set(['480p', '720p'])],
   ['doubao-seedance-2-0-mini-260615', new Set(['480p', '720p'])]
 ]);

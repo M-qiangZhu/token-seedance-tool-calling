@@ -1,6 +1,6 @@
 export const MODEL_CAPABILITIES = Object.freeze({
   'doubao-seedance-2-0-260128': {
-    label: 'Seedance 2.0 Standard', resolutions: ['1080p', '4k'], defaultResolution: '1080p'
+    label: 'Seedance 2.0 Standard', resolutions: ['480p', '720p', '1080p', '4k'], defaultResolution: '1080p'
   },
   'doubao-seedance-2-0-fast-260128': {
     label: 'Seedance 2.0 Fast', resolutions: ['480p', '720p'], defaultResolution: '720p'
@@ -11,6 +11,8 @@ export const MODEL_CAPABILITIES = Object.freeze({
 });
 
 export const DEFAULT_PRICES = Object.freeze([
+  price('doubao-seedance-2-0-260128', '480p', 0, 51),
+  price('doubao-seedance-2-0-260128', '720p', 0, 51),
   price('doubao-seedance-2-0-260128', '1080p', 0, 51),
   price('doubao-seedance-2-0-260128', '4k', 0, 26),
   price('doubao-seedance-2-0-fast-260128', '480p', 0, 37),
@@ -49,6 +51,7 @@ export function calculateCost(usage, pricing) {
   const totalTokens = nonNegativeNumber(usage.total_tokens);
   const inputRate = nonNegativeNumber(pricing.inputRate ?? pricing.input_rate);
   const outputRate = nonNegativeNumber(pricing.outputRate ?? pricing.output_rate);
+  const discountRate = discountNumber(pricing.discountRate ?? pricing.discount_rate ?? 1);
 
   if (completionTokens === null && totalTokens !== null && inputRate === 0) completionTokens = totalTokens;
   if (completionTokens === null) return null;
@@ -56,13 +59,16 @@ export function calculateCost(usage, pricing) {
   const safePrompt = promptTokens ?? 0;
   const inputCost = safePrompt * inputRate / 1_000_000;
   const outputCost = completionTokens * outputRate / 1_000_000;
+  const originalTotalCost = inputCost + outputCost;
   return {
     promptTokens: safePrompt,
     completionTokens,
     totalTokens: totalTokens ?? safePrompt + completionTokens,
     inputCost: money(inputCost),
     outputCost: money(outputCost),
-    totalCost: money(inputCost + outputCost),
+    originalTotalCost: money(originalTotalCost),
+    discountRate,
+    totalCost: money(originalTotalCost * discountRate),
     currency: pricing.currency || 'CNY'
   };
 }
@@ -75,6 +81,11 @@ function nonNegativeNumber(value) {
   if (value === undefined || value === null || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function discountNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= 1 ? number : 1;
 }
 
 function money(value) {

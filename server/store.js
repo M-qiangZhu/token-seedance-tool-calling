@@ -28,7 +28,7 @@ export class MemoryStore {
     if ([...this.users.values()].some((user) => user.username.toLowerCase() === input.username.toLowerCase())) {
       throw duplicateError('用户名已存在');
     }
-    const user = { id: input.id || crypto.randomUUID(), role: 'USER', disabled: false, mustChangePassword: true, createdAt: now(), ...input };
+    const user = { id: input.id || crypto.randomUUID(), role: 'USER', disabled: false, mustChangePassword: true, discountRate: 1, createdAt: now(), ...input };
     this.users.set(user.id, user);
     return { ...user };
   }
@@ -62,18 +62,22 @@ export class MemoryStore {
     this.tasks.set(id, next);
     return clone(next);
   }
-  async listTasksByUser(userId, limit = 100) { return this.#tasks().filter((task) => task.userId === userId).slice(0, limit); }
-  async listTasksAdmin(limit = 200) { return this.#tasks().slice(0, limit); }
-  async listProcessableTasks() { return this.#tasks(false).filter((task) => ['LOCAL_QUEUED', 'PENDING', 'RUNNING', 'AUTH_REQUIRED'].includes(task.status)); }
-  async rebindAuthTasks(userId, sessionHash, keyFingerprint) {
+  async listTasksByUser(userId, limit = 100) { return this.#visibleTasks().filter((task) => task.userId === userId).slice(0, limit); }
+  async listTasksAdmin(limit = 200) {
+    return this.#visibleTasks().slice(0, limit).map((task) => ({ ...task, username: this.users.get(task.userId)?.username || null }));
+  }
+  async listProcessableTasks() { return this.#visibleTasks(false).filter((task) => ['LOCAL_QUEUED', 'PENDING', 'RUNNING', 'AUTH_REQUIRED'].includes(task.status)); }
+  async resumeAuthTasks(userId, keyFingerprint) {
+    let resumed = 0;
     for (const task of this.tasks.values()) {
-      if (task.userId === userId && task.status === 'AUTH_REQUIRED') {
-        task.sessionHash = sessionHash;
-        task.keyFingerprint = keyFingerprint;
+      if (task.userId === userId && task.status === 'AUTH_REQUIRED' && task.keyFingerprint === keyFingerprint) {
         task.status = task.remoteTaskId ? 'PENDING' : 'LOCAL_QUEUED';
+        task.message = null;
         task.updatedAt = now();
+        resumed += 1;
       }
     }
+    return resumed;
   }
   async markAllNonterminalAuthRequired() {
     for (const task of this.tasks.values()) {
@@ -98,7 +102,9 @@ export class MemoryStore {
   async updateSettings(patch) { this.settings = { ...this.settings, ...patch }; return clone(this.settings); }
   async createAudit(entry) { this.audits.unshift({ id: crypto.randomUUID(), createdAt: now(), ...clone(entry) }); }
   async listAudits(limit = 100) { return this.audits.slice(0, limit).map(clone); }
-  async dashboard() { return dashboardFromTasks(this.#tasks(false)); }
+  async dashboard() { return dashboardFromTasks(this.#visibleTasks(false)); }
+
+  #visibleTasks(desc = true) { return this.#tasks(desc).filter((task) => !task.deletedAt); }
 
   #tasks(desc = true) {
     return [...this.tasks.values()].map(clone).sort((a, b) => desc

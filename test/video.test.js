@@ -7,6 +7,7 @@ import {
   normalizeTaskResponse
 } from '../server/video.js';
 import { calculateCost, supportedModels } from '../server/models.js';
+import { upstreamJson } from '../server/gateway.js';
 
 test('规范化 Base URL 和完整生成 URL', () => {
   assert.deepEqual(normalizeGatewayUrl('https://example.com/v1'), {
@@ -68,11 +69,13 @@ test('Seedance Mini 严格校验分辨率、时长和比例', () => {
   assert.throws(() => buildVideoPayload({ ...base, resolution: '720p', duration: 5, ratio: '2:1' }), /不支持画面比例/);
 });
 
-test('Standard仅接受1080p与4K，Fast仅接受480p与720p', () => {
+test('Standard接受480p、720p、1080p与4K，Fast仅接受480p与720p', () => {
   const standard = { model: 'doubao-seedance-2-0-260128', prompt: '测试', duration: 5, ratio: '16:9' };
+  assert.equal(buildVideoPayload({ ...standard, resolution: '480P' }).resolution, '480p');
+  assert.equal(buildVideoPayload({ ...standard, resolution: '720P' }).resolution, '720p');
   assert.equal(buildVideoPayload({ ...standard, resolution: '4K' }).resolution, '4k');
   assert.equal(buildVideoPayload({ ...standard, resolution: '1080P' }).resolution, '1080p');
-  assert.throws(() => buildVideoPayload({ ...standard, resolution: '720p' }), /1080p 或 4k/);
+  assert.throws(() => buildVideoPayload({ ...standard, resolution: '1440p' }), /480p 或 720p 或 1080p 或 4k/);
   const fast = { ...standard, model: 'doubao-seedance-2-0-fast-260128' };
   assert.doesNotThrow(() => buildVideoPayload({ ...fast, resolution: '480p' }));
   assert.throws(() => buildVideoPayload({ ...fast, resolution: '4k' }), /480p 或 720p/);
@@ -80,7 +83,10 @@ test('Standard仅接受1080p与4K，Fast仅接受480p与720p', () => {
 
 test('只返回completion_tokens或total_tokens时都能精确计算费用', () => {
   assert.deepEqual(calculateCost({ completion_tokens: 108900, total_tokens: 108900 }, { inputRate: 0, outputRate: 23, currency: 'CNY' }), {
-    promptTokens: 0, completionTokens: 108900, totalTokens: 108900, inputCost: 0, outputCost: 2.5047, totalCost: 2.5047, currency: 'CNY'
+    promptTokens: 0, completionTokens: 108900, totalTokens: 108900, inputCost: 0, outputCost: 2.5047, originalTotalCost: 2.5047, discountRate: 1, totalCost: 2.5047, currency: 'CNY'
+  });
+  assert.deepEqual(calculateCost({ completion_tokens: 108900, total_tokens: 108900 }, { inputRate: 0, outputRate: 23, discountRate: 0.8, currency: 'CNY' }), {
+    promptTokens: 0, completionTokens: 108900, totalTokens: 108900, inputCost: 0, outputCost: 2.5047, originalTotalCost: 2.5047, discountRate: 0.8, totalCost: 2.00376, currency: 'CNY'
   });
   assert.equal(calculateCost({ total_tokens: 1000 }, { inputRate: 0, outputRate: 51 }).totalCost, 0.051);
   assert.equal(calculateCost({}, { inputRate: 1, outputRate: 51 }), null);
@@ -119,3 +125,21 @@ test('拒绝缺失提示词和非整数参数', () => {
   assert.throws(() => buildVideoPayload({ model: 'seedance', prompt: '测试', duration: '1.5' }), /整数/);
   assert.throws(() => buildVideoPayload({ model: 'seedance', prompt: '测试', generateAudio: 'yes' }), /布尔值/);
 });
+
+test('查询404与生成接口模型错误使用不同的公开错误分类', async () => {
+  const fetchImpl = async () => new Response(JSON.stringify({
+    error: { code: '404', message: 'Model not found or invalid request path' }, request_id: 'request-404'
+  }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+  await assert.rejects(
+    upstreamJson(fetchImpl, 'https://gateway.example/v1/videos/generations/task/remote-1', { method: 'GET', apiKey: 'secret', operation: 'query-task', logger: silentLogger }),
+    (error) => error.code === 'REMOTE_TASK_NOT_FOUND' && error.errorKind === 'REMOTE_TASK_NOT_FOUND'
+      && error.upstreamStatus === 404 && error.upstreamCode === '404'
+      && error.requestId === 'request-404' && /远端任务不存在/.test(error.publicMessage)
+  );
+  await assert.rejects(
+    upstreamJson(fetchImpl, 'https://gateway.example/v1/videos/generations', { method: 'POST', apiKey: 'secret', operation: 'submit-video', body: {}, logger: silentLogger }),
+    (error) => error.code === '404' && /模型权限和生成地址/.test(error.publicMessage)
+  );
+});
+
+const silentLogger = { info() {}, error() {} };

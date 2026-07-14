@@ -1,6 +1,6 @@
 import { publicError } from './security.js';
 
-export async function upstreamJson(fetchImpl, url, { method, apiKey, body, asyncVideo = false, logger = console }) {
+export async function upstreamJson(fetchImpl, url, { method, apiKey, body, asyncVideo = false, operation = 'request', logger = console }) {
   const started = Date.now();
   let response;
   logger.info?.('[tokenhub] request', {
@@ -23,6 +23,7 @@ export async function upstreamJson(fetchImpl, url, { method, apiKey, body, async
     logger.error?.('[tokenhub] network failure', { method, url: diagnosticUrl(url), error: error?.name || 'Error', durationMs: Date.now() - started });
     const message = error?.name === 'TimeoutError' ? 'TokenHub 请求超时' : '无法连接 TokenHub，请检查 URL 和网络';
     const wrapped = publicError(502, message, 'UPSTREAM_NETWORK');
+    wrapped.errorKind = 'UPSTREAM_NETWORK';
     wrapped.ambiguousSubmission = method === 'POST';
     throw wrapped;
   }
@@ -37,10 +38,17 @@ export async function upstreamJson(fetchImpl, url, { method, apiKey, body, async
   });
   if (!response.ok) {
     const message = redactSecret(data?.error?.message || data?.message || `TokenHub 返回 ${response.status}`, apiKey);
-    const publicMessage = /Model not found or invalid request path/i.test(String(message))
-      ? '当前生成 URL 未开放这个模型，请检查模型权限和生成地址。' : String(message);
-    const error = publicError(response.status >= 500 ? 502 : response.status, publicMessage, data?.error?.code || data?.code);
+    const upstreamCode = data?.error?.code || data?.code;
+    const remoteTaskMissing = operation === 'query-task' && response.status === 404;
+    const submitModelError = operation === 'submit-video' && /Model not found or invalid request path/i.test(String(message));
+    const errorKind = remoteTaskMissing ? 'REMOTE_TASK_NOT_FOUND' : upstreamCode || `UPSTREAM_HTTP_${response.status}`;
+    const publicMessage = remoteTaskMissing
+      ? '远端任务不存在或暂时无法查询'
+      : submitModelError ? '当前生成 URL 未开放这个模型，请检查模型权限和生成地址。' : String(message);
+    const error = publicError(response.status >= 500 ? 502 : response.status, publicMessage, errorKind);
     error.upstreamStatus = response.status;
+    error.upstreamCode = upstreamCode;
+    error.errorKind = errorKind;
     error.requestId = requestId;
     error.retryAfter = Number(response.headers.get('retry-after')) || undefined;
     throw error;

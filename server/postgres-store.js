@@ -13,6 +13,7 @@ export class PostgresStore {
         id uuid PRIMARY KEY, username text NOT NULL UNIQUE, password_hash text NOT NULL,
         role text NOT NULL, disabled boolean NOT NULL DEFAULT false,
         must_change_password boolean NOT NULL DEFAULT true,
+        discount_rate numeric(8,6) NOT NULL DEFAULT 1,
         created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
       );
       CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -38,6 +39,7 @@ export class PostgresStore {
         data jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now()
       );
     `);
+    await this.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS discount_rate numeric(8,6) NOT NULL DEFAULT 1');
     for (const item of DEFAULT_PRICES) {
       await this.pool.query(`INSERT INTO pricing(model,resolution,input_rate,output_rate,currency,version)
         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(model,resolution) DO NOTHING`,
@@ -50,8 +52,8 @@ export class PostgresStore {
   async countUsers() { return Number((await this.pool.query('SELECT count(*) AS count FROM users')).rows[0].count); }
   async createUser(input) {
     try {
-      const result = await this.pool.query(`INSERT INTO users(id,username,password_hash,role,disabled,must_change_password)
-        VALUES($1,$2,$3,$4,$5,$6) RETURNING *`, [input.id, input.username, input.passwordHash, input.role || 'USER', Boolean(input.disabled), input.mustChangePassword !== false]);
+      const result = await this.pool.query(`INSERT INTO users(id,username,password_hash,role,disabled,must_change_password,discount_rate)
+        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [input.id, input.username, input.passwordHash, input.role || 'USER', Boolean(input.disabled), input.mustChangePassword !== false, input.discountRate ?? 1]);
       return userRow(result.rows[0]);
     } catch (error) {
       if (error.code === '23505') { error.code = 'DUPLICATE'; error.message = '用户名已存在'; }
@@ -65,8 +67,8 @@ export class PostgresStore {
     const current = await this.findUserById(id);
     if (!current) return null;
     const next = { ...current, ...patch };
-    return userRow((await this.pool.query(`UPDATE users SET password_hash=$2,role=$3,disabled=$4,must_change_password=$5,updated_at=now() WHERE id=$1 RETURNING *`,
-      [id, next.passwordHash, next.role, next.disabled, next.mustChangePassword])).rows[0]);
+    return userRow((await this.pool.query(`UPDATE users SET password_hash=$2,role=$3,disabled=$4,must_change_password=$5,discount_rate=$6,updated_at=now() WHERE id=$1 RETURNING *`,
+      [id, next.passwordHash, next.role, next.disabled, next.mustChangePassword, next.discountRate ?? 1])).rows[0]);
   }
 
   async createSession(value) { await this.pool.query('INSERT INTO auth_sessions(hash,user_id,csrf_token,expires_at) VALUES($1,$2,$3,$4)', [value.hash, value.userId, value.csrfToken, value.expiresAt]); }
@@ -86,15 +88,19 @@ export class PostgresStore {
     const result = await this.pool.query(`UPDATE tasks SET data=data || $2::jsonb,status=COALESCE($3,status),updated_at=now() WHERE id=$1 RETURNING data,status,created_at,updated_at`, [id, JSON.stringify(patch), patch.status || null]);
     return taskRow(result.rows[0]);
   }
-  async listTasksByUser(userId, limit = 100) { return (await this.pool.query('SELECT data,status,created_at,updated_at FROM tasks WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2', [userId, limit])).rows.map(taskRow); }
-  async listTasksAdmin(limit = 200) { return (await this.pool.query('SELECT data,status,created_at,updated_at FROM tasks ORDER BY created_at DESC LIMIT $1', [limit])).rows.map(taskRow); }
-  async listProcessableTasks() { return (await this.pool.query(`SELECT data,status,created_at,updated_at FROM tasks WHERE status=ANY($1) ORDER BY created_at`, [['LOCAL_QUEUED','PENDING','RUNNING','AUTH_REQUIRED']])).rows.map(taskRow); }
-  async rebindAuthTasks(userId, sessionHash, keyFingerprint) {
-    const rows = await this.pool.query(`SELECT id,data FROM tasks WHERE user_id=$1 AND status='AUTH_REQUIRED'`, [userId]);
+  async listTasksByUser(userId, limit = 100) { return (await this.pool.query(`SELECT data,status,created_at,updated_at FROM tasks WHERE user_id=$1 AND NOT (data ? 'deletedAt') ORDER BY created_at DESC LIMIT $2`, [userId, limit])).rows.map(taskRow); }
+  async listTasksAdmin(limit = 200) {
+    return (await this.pool.query(`SELECT t.data,t.status,t.created_at,t.updated_at,u.username
+      FROM tasks t JOIN users u ON u.id=t.user_id WHERE NOT (t.data ? 'deletedAt') ORDER BY t.created_at DESC LIMIT $1`, [limit])).rows.map(taskRow);
+  }
+  async listProcessableTasks() { return (await this.pool.query(`SELECT data,status,created_at,updated_at FROM tasks WHERE status=ANY($1) AND NOT (data ? 'deletedAt') ORDER BY created_at`, [['LOCAL_QUEUED','PENDING','RUNNING','AUTH_REQUIRED']])).rows.map(taskRow); }
+  async resumeAuthTasks(userId, keyFingerprint) {
+    const rows = await this.pool.query(`SELECT id,data FROM tasks WHERE user_id=$1 AND status='AUTH_REQUIRED' AND data->>'keyFingerprint'=$2`, [userId, keyFingerprint]);
     for (const row of rows.rows) {
-      const patch = { sessionHash, keyFingerprint, status: row.data.remoteTaskId ? 'PENDING' : 'LOCAL_QUEUED' };
+      const patch = { status: row.data.remoteTaskId ? 'PENDING' : 'LOCAL_QUEUED', message: null };
       await this.updateTask(row.id, patch);
     }
+    return rows.rowCount;
   }
   async markAllNonterminalAuthRequired() { await this.pool.query(`UPDATE tasks SET status='AUTH_REQUIRED',data=jsonb_set(data,'{status}','"AUTH_REQUIRED"'),updated_at=now() WHERE status=ANY($1)`, [['LOCAL_QUEUED','SUBMITTING','PENDING','RUNNING']]); }
   async deleteTasksOlderThan(cutoff) { await this.pool.query('DELETE FROM tasks WHERE created_at<$1', [cutoff]); }
@@ -114,6 +120,6 @@ export class PostgresStore {
   async dashboard() { return dashboardFromTasks((await this.listTasksAdmin(10_000))); }
 }
 
-function userRow(row) { return row ? { id: row.id, username: row.username, passwordHash: row.password_hash, role: row.role, disabled: row.disabled, mustChangePassword: row.must_change_password, createdAt: row.created_at, updatedAt: row.updated_at } : null; }
-function taskRow(row) { return row ? { ...row.data, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at } : null; }
+function userRow(row) { return row ? { id: row.id, username: row.username, passwordHash: row.password_hash, role: row.role, disabled: row.disabled, mustChangePassword: row.must_change_password, discountRate: Number(row.discount_rate ?? 1), createdAt: row.created_at, updatedAt: row.updated_at } : null; }
+function taskRow(row) { return row ? { ...row.data, username: row.username ?? row.data?.username, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at } : null; }
 function priceRow(row) { return row ? { model: row.model, resolution: row.resolution, inputRate: Number(row.input_rate), outputRate: Number(row.output_rate), currency: row.currency, version: row.version, updatedBy: row.updated_by, updatedAt: row.updated_at } : null; }
