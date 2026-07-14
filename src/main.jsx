@@ -1,10 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  Activity, AlertTriangle, Check, CircleAlert, Clock3, Copy, Download, ExternalLink, Film, Gauge,
-  KeyRound, LayoutDashboard, LoaderCircle, LogOut, Play, RefreshCw, Save, Settings2,
-  ShieldCheck, Sparkles, Trash2, UserPlus, Users, Wifi, X
+  Activity, AlertTriangle, ArrowRight, Check, CircleAlert, Clock3, Copy, Download, ExternalLink,
+  ChevronLeft, ChevronRight, Eye, EyeOff, Film, Gauge, KeyRound, Layers3, LayoutDashboard,
+  LoaderCircle, LockKeyhole, LogOut, Play, RefreshCw, Save, Search, Settings2, ShieldCheck,
+  Sparkles, Trash2, UserPlus,
+  UserRound, Users, Wifi, X
 } from 'lucide-react';
+import loginHero from './assets/seedance-login-hero.png';
+import loginWave from './assets/seedance-login-wave.png';
+import studioHero from './assets/seedance-studio-hero.webp';
 import './styles.css';
 
 const ACTIVE_STATES = new Set(['LOCAL_QUEUED', 'SUBMITTING', 'PENDING', 'RUNNING', 'AUTH_REQUIRED']);
@@ -79,21 +84,97 @@ function Login({ onLogin }) {
   const [form, setForm] = useState({ username: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const submit = async (event) => {
     event.preventDefault(); setBusy(true); setError('');
     try { onLogin(await api('/api/auth/login', { method: 'POST', body: form })); }
     catch (reason) { setError(reason.message); } finally { setBusy(false); }
   };
-  return <div className="auth-page"><section className="auth-card">
-    <div className="auth-logo"><Sparkles /> 南通电信智云中心 seedance API Tools</div>
-    <h1>Seedance 工作台</h1><p>使用管理员分配的账号登录。API Key仅保存在本次服务器会话内。</p>
-    {error && <InlineError text={error} />}
-    <form onSubmit={submit} className="auth-form">
-      <label>用户名<input autoFocus autoComplete="username" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} /></label>
-      <label>密码<input type="password" autoComplete="current-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
-      <button className="button primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <ShieldCheck />} 登录</button>
-    </form>
-  </section></div>;
+  return <div className="login-page">
+    <div className="login-shell">
+      <header className="login-header">
+        <div className="login-brand" aria-label="Seedance 视频创作工作台">
+          <span className="login-brand-mark"><Film aria-hidden="true" /></span>
+          <span><strong>Seedance AI</strong><small>视频创作工作台</small></span>
+        </div>
+        <div className="login-service-pill"><ShieldCheck aria-hidden="true" /> 部门内部服务</div>
+      </header>
+
+      <div className="login-main">
+        <section className="login-story" aria-labelledby="login-story-title">
+          <div className="login-eyebrow"><Sparkles aria-hidden="true" /> AI VIDEO CREATION</div>
+          <h1 id="login-story-title">让每个创意，<br /><span>跃然成片</span></h1>
+          <p>连接 Seedance 视频生成模型，把文字灵感转化为可交付的视频作品，为团队创作持续提速。</p>
+          <div className="login-features" aria-label="平台能力">
+            <div className="login-feature"><span><Film aria-hidden="true" /></span><div><strong>文生视频</strong><small>从提示词到成片</small></div></div>
+            <div className="login-feature"><span><Layers3 aria-hidden="true" /></span><div><strong>多模型协作</strong><small>按任务灵活选择</small></div></div>
+            <div className="login-feature"><span><Clock3 aria-hidden="true" /></span><div><strong>任务持续运行</strong><small>关页后继续处理</small></div></div>
+          </div>
+          <div className="login-hero-frame">
+            <img className="login-hero-art" src={loginHero} alt="层叠的全息视频画面与云海场景" />
+          </div>
+        </section>
+
+        <section className="login-card" aria-labelledby="login-title">
+          <img className="login-card-wave" src={loginWave} alt="" aria-hidden="true" />
+          <div className="login-card-content">
+            <div className="login-card-icon"><Sparkles aria-hidden="true" /></div>
+            <h2 id="login-title">欢迎回来</h2>
+            <p>登录 Seedance 工作台，继续你的视频创作</p>
+
+            {error && <div id="login-error" className="login-error" role="alert"><CircleAlert aria-hidden="true" />{error}</div>}
+            <form onSubmit={submit} className="login-form" aria-busy={busy}>
+              <label htmlFor="login-username">用户名</label>
+              <div className="login-input-wrap">
+                <UserRound aria-hidden="true" />
+                <input
+                  id="login-username"
+                  autoFocus
+                  autoComplete="username"
+                  placeholder="请输入用户名"
+                  value={form.username}
+                  aria-describedby={error ? 'login-error' : undefined}
+                  onChange={(event) => setForm({ ...form, username: event.target.value })}
+                />
+              </div>
+
+              <label htmlFor="login-password">密码</label>
+              <div className="login-input-wrap">
+                <LockKeyhole aria-hidden="true" />
+                <input
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="请输入密码"
+                  value={form.password}
+                  aria-describedby={error ? 'login-error login-account-help' : 'login-account-help'}
+                  onChange={(event) => setForm({ ...form, password: event.target.value })}
+                />
+                <button
+                  className="login-password-toggle"
+                  type="button"
+                  aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword((visible) => !visible)}
+                >{showPassword ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}</button>
+              </div>
+
+              <div id="login-account-help" className="login-form-help"><span>账号由管理员统一分配</span><span><ShieldCheck aria-hidden="true" /> 安全登录</span></div>
+              <button className="login-submit" disabled={busy}>
+                {busy ? <><LoaderCircle className="spin" aria-hidden="true" /> 正在登录…</> : <><span>登录工作台</span><ArrowRight aria-hidden="true" /></>}
+              </button>
+            </form>
+            <div className="login-security-note"><LockKeyhole aria-hidden="true" /><span>API Key 仅保存在服务器会话内，不写入浏览器或数据库</span></div>
+          </div>
+        </section>
+      </div>
+
+      <footer className="login-footer">
+        <span>© 2026 南通电信智云中心</span>
+        <span>专属账号 · 加密会话 · 权限隔离</span>
+      </footer>
+    </div>
+  </div>;
 }
 
 function ChangePassword({ auth, onChanged }) {
@@ -113,14 +194,57 @@ function ChangePassword({ auth, onChanged }) {
 function Portal({ auth, onLogout, notify }) {
   const [view, setView] = useState('studio');
   const logout = async () => { try { await api('/api/auth/logout', { method: 'POST', csrf: auth.csrfToken }); } finally { onLogout(); } };
+  const roleLabel = auth.user.role === 'ADMIN' ? '管理员' : '创作者';
   return <>
-    <nav className="topbar"><div className="topbar-brand"><Sparkles size={18} /> 南通电信智云中心 seedance API Tools</div><div className="topbar-actions">
-      <button className={view === 'studio' ? 'active' : ''} onClick={() => setView('studio')}><Film size={16} /> 视频生成</button>
-      {auth.user.role === 'ADMIN' && <button className={view === 'admin' ? 'active' : ''} onClick={() => setView('admin')}><LayoutDashboard size={16} /> 管理后台</button>}
-      <span className="user-pill">{auth.user.username} · {auth.user.role}</span><button onClick={logout}><LogOut size={16} /> 退出</button>
-    </div></nav>
+    <nav className="topbar" aria-label="主导航">
+      <div className="topbar-brand"><span className="topbar-brand-mark"><Film aria-hidden="true" /></span><span><strong>Seedance AI</strong><small>智云视频工作台</small></span></div>
+      <div className="topbar-nav" aria-label="工作区切换">
+        <button className={view === 'studio' ? 'active' : ''} aria-current={view === 'studio' ? 'page' : undefined} onClick={() => setView('studio')}><Film size={16} /> 创作台</button>
+        {auth.user.role === 'ADMIN' && <button className={view === 'admin' ? 'active' : ''} aria-current={view === 'admin' ? 'page' : undefined} onClick={() => setView('admin')}><LayoutDashboard size={16} /> 管理后台</button>}
+      </div>
+      <div className="topbar-actions">
+        <div className="user-menu-label"><span className="user-avatar" aria-hidden="true">{auth.user.username.slice(0, 1).toUpperCase()}</span><span><strong>{auth.user.username}</strong><small>{roleLabel}</small></span></div>
+        <button className="logout-button" onClick={logout} title="退出登录"><LogOut size={16} /><span>退出</span></button>
+      </div>
+    </nav>
     {view === 'admin' ? <AdminPanel auth={auth} notify={notify} /> : <Studio auth={auth} notify={notify} />}
   </>;
+}
+
+function StudioHero({ configured, maskedKey }) {
+  const heroRef = useRef(null);
+  const moveLight = (event) => {
+    const element = heroRef.current;
+    if (!element || event.pointerType === 'touch') return;
+    const bounds = element.getBoundingClientRect();
+    const x = (event.clientX - bounds.left) / bounds.width;
+    const y = (event.clientY - bounds.top) / bounds.height;
+    element.style.setProperty('--hero-x', String((x - .5) * 2));
+    element.style.setProperty('--hero-y', String((y - .5) * 2));
+    element.style.setProperty('--spot-x', `${x * 100}%`);
+    element.style.setProperty('--spot-y', `${y * 100}%`);
+  };
+  const resetLight = () => {
+    const element = heroRef.current;
+    if (!element) return;
+    element.style.setProperty('--hero-x', '0');
+    element.style.setProperty('--hero-y', '0');
+    element.style.setProperty('--spot-x', '58%');
+    element.style.setProperty('--spot-y', '42%');
+  };
+
+  return <header ref={heroRef} className="studio-hero" onPointerMove={moveLight} onPointerLeave={resetLight}>
+    <div className="studio-hero-media" aria-hidden="true">
+      <img src={studioHero} alt="" />
+    </div>
+    <div className="studio-hero-light" aria-hidden="true" />
+    <div className="studio-hero-copy">
+      <span className="page-kicker"><Sparkles aria-hidden="true" /> Seedance AI 视频创作</span>
+      <h1>把一句想法，<br /><span>变成一段画面。</span></h1>
+      <p>让灵感从文字出发，在 Seedance 里抵达镜头。</p>
+    </div>
+    <div className={`connection ${configured ? 'online' : ''}`}><span className="connection-dot" />{configured ? `已连接 ${maskedKey}` : '尚未连接模型'}</div>
+  </header>;
 }
 
 function Studio({ auth, notify }) {
@@ -135,6 +259,7 @@ function Studio({ auth, notify }) {
   const [confirmation, setConfirmation] = useState(null);
   const [form, setForm] = useState({ prompt: '', resolution: '720p', ratio: '16:9', duration: 5, generateAudio: false, watermark: false });
   const [presetCategory, setPresetCategory] = useState(PROMPT_PRESETS[0].category);
+  const [configExpanded, setConfigExpanded] = useState(true);
   const lastDiscovery = useRef('');
 
   const refreshTasks = useCallback(async () => {
@@ -148,6 +273,7 @@ function Studio({ auth, notify }) {
       if (saved.configured) {
         setConfigured(true); setMaskedKey(saved.config.apiKeyMasked); setModels(saved.config.models || []);
         setConfig((current) => ({ ...current, url: saved.config.submitUrl, model: saved.config.model }));
+        setConfigExpanded(false);
       }
     }).catch(() => {});
   }, []);
@@ -235,17 +361,19 @@ function Studio({ auth, notify }) {
   const activePreset = PROMPT_PRESETS.find((item) => item.category === presetCategory) || PROMPT_PRESETS[0];
   const latestTask = tasks[0];
   const historyTasks = tasks.slice(1);
-  return <main>
-    <header className="hero compact-hero"><div className="brand"><Sparkles size={18} /> 南通电信智云中心 seedance API Tools</div><div className="hero-copy"><span className="eyebrow"><span>Tokenhub — </span><strong>SEEDANCE VIDEO STUDIO</strong></span><h1>把一句想法，变成一段画面。</h1><p>账号隔离、后台排队、自动轮询，并按 TokenHub真实用量核算费用。</p></div><div className={`connection ${configured ? 'online' : ''}`}><span className="connection-dot" />{configured ? `已连接 · ${maskedKey}` : '等待配置'}</div></header>
-    <section className="settings card"><div className="settings-body always-open">
+  return <main className="studio-main">
+    <StudioHero configured={configured} maskedKey={maskedKey} />
+    <section className={`connection-panel card ${configExpanded ? 'expanded' : ''}`}>
+      <div className="connection-panel-heading"><div className="connection-panel-title"><span><Wifi aria-hidden="true" /></span><div><h2>模型连接</h2><p>{configured ? `当前模型：${descriptor?.label || shortModel(config.model)}` : '首次使用需要填写 TokenHub API Key'}</p></div></div><button className="button secondary compact" type="button" aria-expanded={configExpanded} onClick={() => setConfigExpanded((value) => !value)}><Settings2 aria-hidden="true" />{configExpanded ? '收起配置' : '配置连接'}</button></div>
+      {configExpanded && <div className="settings-body always-open">
       <div className="field span-2"><label>文生视频 URL</label><div className="input-icon"><Wifi size={17} /><input type="url" value={config.url} onChange={(event) => setConfig({ ...config, url: event.target.value })} /></div></div>
       <div className="field"><label>API Key</label><div className="input-icon"><KeyRound size={17} /><input type="password" autoComplete="off" placeholder={configured ? `${maskedKey}（重新填写可更换）` : '停止输入800毫秒后自动检测'} value={config.apiKey} onChange={(event) => setConfig({ ...config, apiKey: event.target.value })} /></div><small>仅保存在服务器内存，不写入数据库或浏览器</small></div>
-      <div className="field"><label>Seedance 模型名称</label><select value={config.model} disabled={!models.length} onChange={(event) => selectModel(event.target.value)}>{!models.length && <option value="">填写 Key 后自动发现</option>}{models.map((model) => <option key={model.id} value={model.id}>{model.label} · {model.id}</option>)}</select></div>
+      <div className="field"><label>Seedance 模型名称</label><select value={config.model} disabled={!models.length} onChange={(event) => selectModel(event.target.value)}>{!models.length && <option value="">填写 Key 后自动发现</option>}{models.map((model) => <option key={model.id} value={model.id}>{model.label} | {model.id}</option>)}</select></div>
       <div className="settings-actions span-2"><button className="button secondary" disabled={discovering || !config.apiKey} onClick={() => discover(false)}>{discovering ? <LoaderCircle className="spin" /> : <RefreshCw />} 重新检测模型</button></div>
-    </div></section>
+    </div>}</section>
     <div className="workspace">
-      <section className="composer card"><div className="section-heading"><div><span className="step">01</span><h2>描述你想看到的画面</h2></div><span className="model-chip">{descriptor?.label || '未选择模型'}</span></div>
-        <form onSubmit={submit} className="composer-form"><div className="composer-layout"><div className="prompt-column"><div className="prompt-wrap"><textarea required maxLength={5000} value={form.prompt} onChange={(event) => setForm({ ...form, prompt: event.target.value })} placeholder="例如：清晨的南京长江大桥笼罩在薄雾中，镜头沿江面缓慢向前推进，电影感……" /><span className="char-count">{form.prompt.length} / 5000</span></div><p className="model-hint">{descriptor ? `${descriptor.label} 支持 ${descriptor.resolutions.join(' / ')}、4–15秒。` : '请先配置并选择模型。'}</p><div className="preset-panel"><div className="preset-tabs">{PROMPT_PRESETS.map((item) => <button type="button" key={item.category} className={item.category === presetCategory ? 'active' : ''} onClick={() => setPresetCategory(item.category)}>{item.category}</button>)}</div><div className="preset-list">{activePreset.prompts.map((prompt, index) => <button type="button" key={prompt} onClick={() => setForm((current) => ({ ...current, prompt }))}><span>{index + 1}</span>{prompt}</button>)}</div></div></div>
+      <section className="composer card"><div className="section-heading"><div><span className="section-icon"><Sparkles aria-hidden="true" /></span><div><h2>创作描述</h2><p>描述主体、环境、镜头和画面风格</p></div></div><span className="model-chip">{descriptor?.label || '未选择模型'}</span></div>
+        <form onSubmit={submit} className="composer-form"><div className="composer-layout"><div className="prompt-column"><div className="prompt-wrap"><textarea required maxLength={5000} value={form.prompt} onChange={(event) => setForm({ ...form, prompt: event.target.value })} placeholder="例如：清晨的南京长江大桥笼罩在薄雾中，镜头沿江面缓慢向前推进，电影感……" /><span className="char-count">{form.prompt.length} / 5000</span></div><p className="model-hint">{descriptor ? `${descriptor.label} 支持 ${descriptor.resolutions.join(' / ')}，时长 4-15 秒。` : '请先配置并选择模型。'}</p><details className="preset-panel"><summary><span><Sparkles aria-hidden="true" /> 使用灵感模板</span><small>快速填入完整提示词</small></summary><div className="preset-content"><div className="preset-tabs">{PROMPT_PRESETS.map((item) => <button type="button" key={item.category} className={item.category === presetCategory ? 'active' : ''} onClick={() => setPresetCategory(item.category)}>{item.category}</button>)}</div><div className="preset-list">{activePreset.prompts.map((prompt, index) => <button type="button" key={prompt} onClick={() => setForm((current) => ({ ...current, prompt }))}><span>{index + 1}</span>{prompt}</button>)}</div></div></details></div>
           <div className="parameter-grid"><label>分辨率<select value={form.resolution} onChange={(event) => setForm({ ...form, resolution: event.target.value })}>{(descriptor?.resolutions || ['720p']).map((value) => <option key={value} value={value}>{value.toUpperCase()}</option>)}</select></label>
             <label>画面比例<select value={form.ratio} onChange={(event) => setForm({ ...form, ratio: event.target.value })}>{['16:9','9:16','1:1','4:3','3:4','21:9'].map((value) => <option key={value}>{value}</option>)}</select></label>
             <label>时长（秒）<input type="number" min="4" max="15" value={form.duration} onChange={(event) => setForm({ ...form, duration: Number(event.target.value) })} /></label>
@@ -254,50 +382,26 @@ function Studio({ auth, notify }) {
           </div></div>
           <button className="generate" disabled={submitting || !configured || !descriptor}>{submitting ? <LoaderCircle className="spin" /> : <Play fill="currentColor" />} {submitting ? '正在入队…' : '开始生成视频'}</button><p className="cost-hint">提交会产生真实模型调用费用；排队任务由服务器统一控制并发。</p>
         </form></section>
-      <section className="results card"><div className="section-heading"><div><span className="step">02</span><h2>我的任务</h2></div><div className="results-heading-actions"><span className="task-count">{tasks.length} 条任务</span><button className="icon-button" type="button" onClick={refreshTasks} aria-label="刷新任务" title="刷新任务"><RefreshCw size={16} /></button></div></div>{latestTask ? <div className="task-list"><section className="latest-task" aria-label="最新任务"><div className="task-group-heading"><span>最新任务</span><small>最近提交</small></div><TaskCard task={latestTask} featured busyAction={taskAction} onRetryQuery={(task) => runTaskAction(task, 'retry-query')} onRegenerate={requestRegenerate} onDelete={requestDelete} /></section>{historyTasks.length > 0 && <section className="history-tasks" aria-label="历史任务"><div className="task-group-heading"><span>历史任务</span><small>{historyTasks.length} 条</small></div><div className="task-history">{historyTasks.map((task) => <TaskCard key={task.id} task={task} busyAction={taskAction} onRetryQuery={(item) => runTaskAction(item, 'retry-query')} onRegenerate={requestRegenerate} onDelete={requestDelete} />)}</div></section>}</div> : <EmptyResult />}</section>
-    </div><footer>API Key不落盘 · 任务记录保留90天 · 视频链接通常仅有效24小时</footer>
+      <section className="results card"><div className="section-heading"><div><span className="section-icon"><Activity aria-hidden="true" /></span><div><h2>生成任务</h2><p>进度与成片会自动更新</p></div></div><div className="results-heading-actions"><span className="task-count">{tasks.length} 条</span><button className="icon-button" type="button" onClick={refreshTasks} aria-label="刷新任务" title="刷新任务"><RefreshCw size={16} /></button></div></div>{latestTask ? <div className="task-list"><section className="latest-task" aria-label="最新任务"><div className="task-group-heading"><span>最新任务</span><small>最近提交</small></div><TaskCard task={latestTask} featured busyAction={taskAction} onRetryQuery={(task) => runTaskAction(task, 'retry-query')} onRegenerate={requestRegenerate} onDelete={requestDelete} /></section>{historyTasks.length > 0 && <section className="history-tasks" aria-label="历史任务"><div className="task-group-heading"><span>历史任务</span><small>{historyTasks.length} 条</small></div><div className="task-history">{historyTasks.map((task) => <TaskCard key={task.id} task={task} busyAction={taskAction} onRetryQuery={(item) => runTaskAction(item, 'retry-query')} onRegenerate={requestRegenerate} onDelete={requestDelete} />)}</div></section>}</div> : <EmptyResult />}</section>
+    </div><footer className="workspace-footer"><span>API Key 不落盘</span><span>任务记录保留 90 天</span><span>视频链接通常仅有效 24 小时</span></footer>
     <ConfirmDialog confirmation={confirmation} busy={Boolean(taskAction)} onCancel={() => setConfirmation(null)} onConfirm={() => runTaskAction(confirmation.task, confirmation.action)} />
   </main>;
 }
 
 function AdminPanel({ auth, notify }) {
   const [data, setData] = useState({ users: [], pricing: [], settings: {}, tasks: [], dashboard: {} });
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'USER', discountRate: 1 });
-  const [discountDrafts, setDiscountDrafts] = useState({});
-  const [savingDiscount, setSavingDiscount] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [taskAction, setTaskAction] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       const [users, pricing, settings, tasks, dashboard] = await Promise.all(['/api/admin/users','/api/admin/pricing','/api/admin/settings','/api/admin/tasks','/api/admin/dashboard'].map((url) => api(url)));
       setData({ users: users.users, pricing: pricing.pricing, settings: settings.settings, tasks: tasks.tasks, dashboard: dashboard.dashboard });
     } catch (error) { notify({ type: 'error', text: error.message }); }
+    finally { setLoading(false); }
   }, [notify]);
   useEffect(() => { load(); }, [load]);
-  const createUser = async (event) => { event.preventDefault(); try { await api('/api/admin/users', { method: 'POST', csrf: auth.csrfToken, body: newUser }); setNewUser({ username: '', password: '', role: 'USER', discountRate: 1 }); notify({ type: 'success', text: '账号已创建，首次登录将要求修改密码。' }); load(); } catch (error) { notify({ type: 'error', text: error.message }); } };
-  const updateUser = async (id, patch) => {
-    try {
-      const result = await api(`/api/admin/users/${id}`, { method: 'PATCH', csrf: auth.csrfToken, body: patch });
-      setData((current) => ({ ...current, users: current.users.map((user) => user.id === id ? result.user : user) }));
-      notify({ type: 'success', text: `账号 ${result.user.username} 已${result.user.disabled ? '禁用' : '启用'}。` });
-    } catch (error) { notify({ type: 'error', text: error.message }); }
-  };
-  const saveDiscount = async (user) => {
-    const draft = discountDrafts[user.id] ?? String(formatDiscountPercent(user.discountRate));
-    const percent = Number(draft);
-    if (draft === '' || !Number.isFinite(percent) || percent < 0 || percent > 100) {
-      notify({ type: 'error', text: '折扣率必须是 0 到 100 之间的百分比。' });
-      return;
-    }
-    setSavingDiscount(user.id);
-    try {
-      const result = await api(`/api/admin/users/${user.id}`, { method: 'PATCH', csrf: auth.csrfToken, body: { discountRate: percent / 100 } });
-      setData((current) => ({ ...current, users: current.users.map((item) => item.id === user.id ? result.user : item) }));
-      setDiscountDrafts((current) => { const next = { ...current }; delete next[user.id]; return next; });
-      notify({ type: 'success', text: `账号 ${result.user.username} 的折扣率已保存为 ${formatDiscountPercent(result.user.discountRate)}%。` });
-    } catch (error) { notify({ type: 'error', text: error.message }); }
-    finally { setSavingDiscount(null); }
-  };
   const retryAdminQuery = async (task) => {
     const key = `${task.id}:retry-query`;
     setTaskAction(key);
@@ -317,15 +421,109 @@ function AdminPanel({ auth, notify }) {
     } catch (error) { notify({ type: 'error', text: error.message }); }
     finally { setTaskAction(null); setConfirmation(null); }
   };
-  return <main className="admin-main"><header className="admin-heading"><div><span className="eyebrow">ADMIN CONSOLE</span><h1>部门使用与费用管理</h1><p>管理员只能查看任务元数据，无法读取同事的完整提示词和视频地址。</p></div><button className="button secondary" onClick={load}><RefreshCw /> 刷新</button></header>
+  return <main className="admin-main"><header className="admin-heading"><div><span className="page-kicker">管理控制台</span><h1>部门运营概览</h1><p>管理账号、模型价格和任务并发。提示词与视频地址始终对管理员隐藏。</p></div><button className="button secondary" disabled={loading} onClick={load}>{loading ? <LoaderCircle className="spin" /> : <RefreshCw />} 刷新数据</button></header>
+    {loading ? <AdminSkeleton /> : <>
     <DashboardCards dashboard={data.dashboard} />
-    <section className="admin-grid"><div className="card admin-card"><div className="section-heading"><div><Users /><h2>账号管理</h2></div></div><form className="inline-form" onSubmit={createUser}><input placeholder="用户名" value={newUser.username} onChange={(event) => setNewUser({ ...newUser, username: event.target.value })} /><input type="password" placeholder="临时密码" value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} /><select value={newUser.role} onChange={(event) => setNewUser({ ...newUser, role: event.target.value })}><option>USER</option><option>ADMIN</option></select><input type="number" min="0" max="100" step="1" title="折扣率百分比" value={formatDiscountPercent(newUser.discountRate)} onChange={(event) => setNewUser({ ...newUser, discountRate: percentToDiscount(event.target.value) })} /><button className="button primary"><UserPlus /> 新建</button></form><div className="table-wrap"><table><thead><tr><th>账号</th><th>角色</th><th>折扣率</th><th>状态</th><th>操作</th></tr></thead><tbody>{data.users.map((user) => { const draft = discountDrafts[user.id] ?? String(formatDiscountPercent(user.discountRate)); const dirty = Number(draft) !== formatDiscountPercent(user.discountRate); return <tr key={user.id}><td>{user.username}</td><td>{user.role}</td><td><div className="discount-editor"><input type="number" min="0" max="100" step="1" value={draft} onChange={(event) => setDiscountDrafts((current) => ({ ...current, [user.id]: event.target.value }))} /><span>%</span><button className="save-inline" disabled={!dirty || savingDiscount === user.id} onClick={() => saveDiscount(user)} title="保存折扣率">{savingDiscount === user.id ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />} 保存</button></div></td><td>{user.disabled ? '已禁用' : user.mustChangePassword ? '待改密码' : '正常'}</td><td><button disabled={user.id === auth.user.id} onClick={() => updateUser(user.id, { disabled: !user.disabled })}>{user.disabled ? '启用' : '禁用'}</button></td></tr>; })}</tbody></table></div></div>
+    <section className="admin-grid">
+      <AccountsCard
+        auth={auth}
+        users={data.users}
+        notify={notify}
+        onReload={load}
+        onUserChange={(nextUser) => setData((current) => ({ ...current, users: current.users.map((user) => user.id === nextUser.id ? nextUser : user) }))}
+      />
       <PricingCard pricing={data.pricing} auth={auth} notify={notify} />
     </section>
     <SettingsCard settings={data.settings} auth={auth} notify={notify} />
-    <section className="card admin-card"><div className="section-heading"><div><Activity /><h2>最近任务（已脱敏）</h2></div></div><div className="table-wrap"><table className="task-admin-table"><thead><tr><th>时间</th><th>任务 ID</th><th>用户名</th><th>模型</th><th>分辨率</th><th>状态</th><th>Token</th><th>费用</th><th>操作</th></tr></thead><tbody>{data.tasks.map((task) => <tr key={task.id}><td>{formatDate(task.createdAt, true)}</td><td><div className="admin-task-ids"><span title={`本地任务 ID：${task.id}`}>本地 {shortId(task.id)}</span>{task.remoteTaskId && <span title={`远端任务 ID：${task.remoteTaskId}`}>远端 {shortId(task.remoteTaskId)}</span>}</div></td><td>{task.username || '未知'} <span className="mono muted-id">{task.userId.slice(0, 8)}</span></td><td>{shortModel(task.model)}</td><td>{task.resolution}</td><td title={task.message || ''}>{statusText(task.status)}</td><td>{task.cost ? `${formatTokenMillions(task.cost.totalTokens)} 百万` : '—'}</td><td>{task.cost ? `¥${task.cost.totalCost.toFixed(4)}` : '—'}</td><td><div className="admin-task-actions">{canRetryQuery(task) && <button disabled={Boolean(taskAction)} onClick={() => retryAdminQuery(task)} title="查询原远端任务"><RefreshCw size={13} /> 重试查询</button>}{canDeleteTask(task) && <button className="danger" disabled={Boolean(taskAction)} onClick={() => setConfirmation({ task, title: '确认移除任务', confirmLabel: '移除任务', type: 'warning', text: task.remoteTaskId ? '移除只会停止本地跟踪，不会取消 TokenHub 上的远端任务。' : '任务将从最近任务和统计中隐藏，审计记录仍会保留。' })} title="移除任务"><Trash2 size={13} /></button>}</div></td></tr>)}</tbody></table></div></section>
+    <section className="card admin-card tasks-admin-card"><div className="section-heading"><div><span className="section-icon"><Activity aria-hidden="true" /></span><div><h2>最近任务</h2><p>仅展示费用与运行元数据，内容已经脱敏</p></div></div><span className="task-count">{data.tasks.length} 条</span></div><div className="table-wrap"><table className="task-admin-table"><thead><tr><th>时间</th><th>任务 ID</th><th>用户名</th><th>模型</th><th>分辨率</th><th>状态</th><th>Token</th><th>费用</th><th>操作</th></tr></thead><tbody>{data.tasks.length ? data.tasks.map((task) => <tr key={task.id}><td>{formatDate(task.createdAt, true)}</td><td><div className="admin-task-ids"><span title={`本地任务 ID：${task.id}`}>本地 {shortId(task.id)}</span>{task.remoteTaskId && <span title={`远端任务 ID：${task.remoteTaskId}`}>远端 {shortId(task.remoteTaskId)}</span>}</div></td><td><strong className="table-primary">{task.username || '未知'}</strong><span className="mono muted-id">{task.userId.slice(0, 8)}</span></td><td>{shortModel(task.model)}</td><td>{task.resolution}</td><td title={task.message || ''}><span className={`status-badge task-${task.status.toLowerCase()}`}>{statusText(task.status)}</span></td><td>{task.cost ? `${formatTokenMillions(task.cost.totalTokens)} 百万` : '-'}</td><td>{task.cost ? `¥${task.cost.totalCost.toFixed(4)}` : '-'}</td><td><div className="admin-task-actions">{canRetryQuery(task) && <button disabled={Boolean(taskAction)} onClick={() => retryAdminQuery(task)} title="查询原远端任务"><RefreshCw size={13} /> 重试查询</button>}{canDeleteTask(task) && <button className="danger" disabled={Boolean(taskAction)} onClick={() => setConfirmation({ task, title: '确认移除任务', confirmLabel: '移除任务', type: 'warning', text: task.remoteTaskId ? '移除只会停止本地跟踪，不会取消 TokenHub 上的远端任务。' : '任务将从最近任务和统计中隐藏，审计记录仍会保留。' })} title="移除任务"><Trash2 size={13} /></button>}</div></td></tr>) : <tr><td colSpan="9"><div className="table-empty"><Film aria-hidden="true" /> 暂无任务记录</div></td></tr>}</tbody></table></div></section>
     <ConfirmDialog confirmation={confirmation} busy={Boolean(taskAction)} onCancel={() => setConfirmation(null)} onConfirm={() => deleteAdminTask(confirmation.task)} />
+    </>}
   </main>;
+}
+
+function AccountsCard({ auth, users, notify, onReload, onUserChange }) {
+  const pageSize = 6;
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'USER', discountRate: 1 });
+  const [discountDrafts, setDiscountDrafts] = useState({});
+  const [savingDiscount, setSavingDiscount] = useState(null);
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredUsers = useMemo(() => users.filter((user) => {
+    if (!normalizedQuery) return true;
+    const roleLabel = user.role === 'ADMIN' ? '管理员 admin' : '创作者 user';
+    return `${user.username} ${roleLabel}`.toLowerCase().includes(normalizedQuery);
+  }), [normalizedQuery, users]);
+  const pageCount = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
+  const visibleUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => setPage(1), [normalizedQuery]);
+  useEffect(() => setPage((current) => Math.min(current, pageCount)), [pageCount]);
+
+  const createUser = async (event) => {
+    event.preventDefault();
+    try {
+      await api('/api/admin/users', { method: 'POST', csrf: auth.csrfToken, body: newUser });
+      setNewUser({ username: '', password: '', role: 'USER', discountRate: 1 });
+      setQuery('');
+      setPage(1);
+      notify({ type: 'success', text: '账号已创建，首次登录将要求修改密码。' });
+      await onReload();
+    } catch (error) { notify({ type: 'error', text: error.message }); }
+  };
+
+  const updateUser = async (user, patch) => {
+    try {
+      const result = await api(`/api/admin/users/${user.id}`, { method: 'PATCH', csrf: auth.csrfToken, body: patch });
+      onUserChange(result.user);
+      notify({ type: 'success', text: `账号 ${result.user.username} 已${result.user.disabled ? '禁用' : '启用'}。` });
+    } catch (error) { notify({ type: 'error', text: error.message }); }
+  };
+
+  const saveDiscount = async (user) => {
+    const draft = discountDrafts[user.id] ?? String(formatDiscountPercent(user.discountRate));
+    const percent = Number(draft);
+    if (draft === '' || !Number.isFinite(percent) || percent < 0 || percent > 100) {
+      notify({ type: 'error', text: '折扣率必须是 0 到 100 之间的百分比。' });
+      return;
+    }
+    setSavingDiscount(user.id);
+    try {
+      const result = await api(`/api/admin/users/${user.id}`, { method: 'PATCH', csrf: auth.csrfToken, body: { discountRate: percent / 100 } });
+      onUserChange(result.user);
+      setDiscountDrafts((current) => { const next = { ...current }; delete next[user.id]; return next; });
+      notify({ type: 'success', text: `账号 ${result.user.username} 的折扣率已保存为 ${formatDiscountPercent(result.user.discountRate)}%。` });
+    } catch (error) { notify({ type: 'error', text: error.message }); }
+    finally { setSavingDiscount(null); }
+  };
+
+  return <section className="card admin-card accounts-card">
+    <div className="section-heading"><div><span className="section-icon"><Users aria-hidden="true" /></span><div><h2>账号管理</h2><p>创建账号并维护权限、折扣与启用状态</p></div></div></div>
+    <form className="account-create-form" onSubmit={createUser}>
+      <label><span>用户名</span><input required autoComplete="off" placeholder="例如 zhangsan" value={newUser.username} onChange={(event) => setNewUser({ ...newUser, username: event.target.value })} /></label>
+      <label><span>临时密码</span><input required type="password" autoComplete="new-password" placeholder="至少 10 位" value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} /></label>
+      <fieldset className="role-field"><legend>角色</legend><div className="role-selector" aria-label="新账号角色">
+        <button type="button" aria-pressed={newUser.role === 'USER'} onClick={() => setNewUser({ ...newUser, role: 'USER' })}>创作者</button>
+        <button type="button" aria-pressed={newUser.role === 'ADMIN'} onClick={() => setNewUser({ ...newUser, role: 'ADMIN' })}>管理员</button>
+      </div></fieldset>
+      <label><span>折扣率</span><div className="numeric-input compact-number"><input type="number" min="0" max="100" step="1" aria-label="新账号折扣率" value={formatDiscountPercent(newUser.discountRate)} onChange={(event) => setNewUser({ ...newUser, discountRate: percentToDiscount(event.target.value) })} /><span>%</span></div></label>
+      <button className="button primary account-create-button"><UserPlus /> 创建账号</button>
+    </form>
+    <div className="account-toolbar">
+      <label className="account-search"><Search aria-hidden="true" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索用户名或角色" aria-label="搜索账号" /></label>
+      <span>{normalizedQuery ? `找到 ${filteredUsers.length} 个账号` : `共 ${users.length} 个账号`}</span>
+    </div>
+    <div className="table-wrap account-table-wrap"><table><thead><tr><th>账号</th><th>角色</th><th>折扣率</th><th>状态</th><th>操作</th></tr></thead><tbody>{visibleUsers.length ? visibleUsers.map((user) => {
+      const draft = discountDrafts[user.id] ?? String(formatDiscountPercent(user.discountRate));
+      const dirty = Number(draft) !== formatDiscountPercent(user.discountRate);
+      const state = user.disabled ? 'disabled' : user.mustChangePassword ? 'pending' : 'active';
+      return <tr key={user.id}><td><strong className="table-primary">{user.username}</strong>{user.id === auth.user.id && <small className="current-user">当前账号</small>}</td><td><span className={`role-badge ${user.role.toLowerCase()}`}>{user.role === 'ADMIN' ? '管理员' : '创作者'}</span></td><td><div className="discount-editor"><div className="numeric-input compact-number"><input aria-label={`${user.username} 折扣率`} type="number" min="0" max="100" step="1" value={draft} onChange={(event) => setDiscountDrafts((current) => ({ ...current, [user.id]: event.target.value }))} /><span>%</span></div><button type="button" className="save-inline" disabled={!dirty || savingDiscount === user.id} onClick={() => saveDiscount(user)} title="保存折扣率">{savingDiscount === user.id ? <LoaderCircle className="spin" size={14} /> : <Save size={14} />} 保存</button></div></td><td><span className={`status-badge ${state}`}>{user.disabled ? '已禁用' : user.mustChangePassword ? '待改密码' : '正常'}</span></td><td><button type="button" className="table-action" disabled={user.id === auth.user.id} onClick={() => updateUser(user, { disabled: !user.disabled })}>{user.disabled ? '启用' : '禁用'}</button></td></tr>;
+    }) : <tr><td colSpan="5"><div className="table-empty compact-empty"><Search aria-hidden="true" />没有匹配的账号</div></td></tr>}</tbody></table></div>
+    <div className="account-pagination">
+      <span>每页 {pageSize} 条 · 第 {page} / {pageCount} 页</span>
+      <div><button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)} aria-label="上一页"><ChevronLeft /></button><button type="button" disabled={page === pageCount} onClick={() => setPage((current) => current + 1)} aria-label="下一页"><ChevronRight /></button></div>
+    </div>
+  </section>;
 }
 
 function PricingCard({ pricing, auth, notify }) {
@@ -343,7 +541,18 @@ function PricingCard({ pricing, auth, notify }) {
     finally { setSaving(null); }
   };
   const change = (index, field, value) => setRows((current) => current.map((row, idx) => idx === index ? { ...row, [field]: Number(value) } : row));
-  return <div className="card admin-card"><div className="section-heading"><div><Gauge /><h2>Token单价</h2></div></div><div className="table-wrap"><table><thead><tr><th>模型</th><th>分辨率</th><th>输入/百万</th><th>输出/百万</th><th></th></tr></thead><tbody>{rows.map((row, index) => { const id = `${row.model}:${row.resolution}`; return <tr key={id}><td>{shortModel(row.model)}</td><td>{row.resolution}</td><td><input type="number" min="0" step="0.01" value={row.inputRate} onChange={(event) => change(index, 'inputRate', event.target.value)} /></td><td><input type="number" min="0" step="0.01" value={row.outputRate} onChange={(event) => change(index, 'outputRate', event.target.value)} /></td><td><button disabled={saving === id} onClick={() => save(row)} title="保存 Token 单价">{saving === id ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}</button></td></tr>; })}</tbody></table></div></div>;
+  return <section className="card admin-card pricing-card">
+    <div className="section-heading"><div><span className="section-icon"><Gauge aria-hidden="true" /></span><div><h2>Token 单价</h2><p>按模型与分辨率维护计费基准</p></div></div></div>
+    <div className="pricing-list">{rows.map((row, index) => {
+      const id = `${row.model}:${row.resolution}`;
+      return <article className="pricing-row" key={id}>
+        <div className="pricing-identity"><strong>{shortModel(row.model)}</strong><span className="resolution-badge">{row.resolution.toUpperCase()}</span></div>
+        <label><span>输入 / 百万</span><div className="numeric-input money-input"><span>¥</span><input aria-label={`${shortModel(row.model)} ${row.resolution} 输入单价`} type="number" min="0" step="0.01" value={row.inputRate} onChange={(event) => change(index, 'inputRate', event.target.value)} /></div></label>
+        <label><span>输出 / 百万</span><div className="numeric-input money-input"><span>¥</span><input aria-label={`${shortModel(row.model)} ${row.resolution} 输出单价`} type="number" min="0" step="0.01" value={row.outputRate} onChange={(event) => change(index, 'outputRate', event.target.value)} /></div></label>
+        <button type="button" className="save-icon-button" disabled={saving === id} onClick={() => save(row)} aria-label={`保存 ${shortModel(row.model)} ${row.resolution} 单价`} title="保存 Token 单价">{saving === id ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}</button>
+      </article>;
+    })}</div>
+  </section>;
 }
 
 function SettingsCard({ settings, auth, notify }) {
@@ -366,10 +575,11 @@ function SettingsCard({ settings, auth, notify }) {
     } catch (error) { notify({ type: 'error', text: error.message }); }
     finally { setSaving(false); }
   };
-  return <section className="card admin-card"><div className="section-heading"><div><Settings2 /><h2>并发与队列</h2></div><button className="button primary compact" disabled={saving} onClick={save}>{saving ? <LoaderCircle className="spin" /> : <Save />} 保存</button></div><p className="settings-explainer">活跃任务指已经提交到远端、目前处于远端排队或生成中的任务。本地排队任务尚未发送到 TokenHub，不会产生远端任务 ID。</p><div className="settings-row">{fields.map(([key,label,description]) => <label key={key}><strong>{label}</strong><small>{description}</small><input type="number" min="1" value={form[key] || ''} onChange={(event) => setForm({ ...form, [key]: Number(event.target.value) })} /></label>)}</div></section>;
+  return <section className="card admin-card queue-card"><div className="section-heading"><div><span className="section-icon"><Settings2 aria-hidden="true" /></span><div><h2>并发与队列</h2><p>控制部门资源占用和等待任务规模</p></div></div><button className="button primary compact" disabled={saving} onClick={save}>{saving ? <LoaderCircle className="spin" /> : <Save />} 保存设置</button></div><p className="settings-explainer">活跃任务已经提交到远端；本地排队任务尚未发送，不会产生远端任务 ID。</p><div className="settings-row">{fields.map(([key,label,description]) => <label key={key}><strong>{label}</strong><small>{description}</small><input type="number" min="1" value={form[key] || ''} onChange={(event) => setForm({ ...form, [key]: Number(event.target.value) })} /></label>)}</div></section>;
 }
 
-function DashboardCards({ dashboard }) { const cards = [[Activity,'活跃任务',dashboard.active],[Clock3,'排队任务',dashboard.queued],[Check,'成功任务',dashboard.succeeded],[Gauge,'累计费用',`¥${Number(dashboard.totalCost || 0).toFixed(4)}`]]; return <div className="metrics">{cards.map(([Icon,label,value]) => <div className="metric" key={label}><Icon /><div><span>{label}</span><strong>{value ?? 0}</strong></div></div>)}</div>; }
+function DashboardCards({ dashboard }) { const cards = [[Activity,'活跃任务',dashboard.active],[Clock3,'排队任务',dashboard.queued],[Check,'成功任务',dashboard.succeeded],[Gauge,'累计费用',`¥${Number(dashboard.totalCost || 0).toFixed(4)}`]]; return <div className="metrics">{cards.map(([Icon,label,value]) => <div className="metric" key={label}><span><Icon aria-hidden="true" /></span><div><strong>{value ?? 0}</strong><small>{label}</small></div></div>)}</div>; }
+function AdminSkeleton() { return <div className="admin-skeleton" aria-label="正在加载管理数据"><div className="skeleton metrics-skeleton" /><div className="skeleton panel-skeleton" /><div className="skeleton panel-skeleton short" /></div>; }
 function TaskCard({ task, featured = false, busyAction, onRetryQuery, onRegenerate, onDelete }) {
   const active = ACTIVE_STATES.has(task.status);
   const failed = ['FAILED','UNKNOWN'].includes(task.status);
@@ -387,7 +597,7 @@ function TaskVideo({ task }) {
   const orientation = ratio < .9 ? 'portrait' : ratio <= 1.1 ? 'square' : 'landscape';
   return <div className={`video-wrap ${orientation}`} style={{ aspectRatio }}><video src={task.videoUrl} controls playsInline preload="metadata" onLoadedMetadata={fitNativeRatio} /></div>;
 }
-function Toggle({ label, value, onChange }) { return <label className="switch-label"><span>{label}</span><button type="button" className={`switch ${value ? 'on' : ''}`} onClick={() => onChange(!value)}><span /></button></label>; }
+function Toggle({ label, value, onChange }) { return <div className="switch-label"><span>{label}</span><button type="button" className={`switch ${value ? 'on' : ''}`} aria-label={label} aria-pressed={value} onClick={() => onChange(!value)}><span /></button></div>; }
 function EmptyResult() { return <div className="empty-result"><div className="film-icon"><Film /></div><h3>视频将在这里出现</h3><p>提交后可以关闭页面，服务器会继续排队和查询。</p></div>; }
 function Toast({ toast, onClose }) {
   useEffect(() => {
@@ -414,12 +624,15 @@ async function api(url, options = {}) {
   return data;
 }
 function isHttpUrl(value) { try { return ['http:','https:'].includes(new URL(value).protocol); } catch { return false; } }
-function shortModel(value = '') { return value.replace('doubao-seedance-2-0-', '').replace('-260128','').replace('-260615','') || '—'; }
+function shortModel(value = '') {
+  if (value === 'doubao-seedance-2-0-260128') return 'standard';
+  return value.replace('doubao-seedance-2-0-', '').replace('-260128','').replace('-260615','') || '-';
+}
 function shortId(value = '') { return value.length > 16 ? `${value.slice(0, 8)}…${value.slice(-5)}` : value; }
 function canRetryQuery(task) { return Boolean(task.remoteTaskId && (task.status === 'UNKNOWN' || task.errorKind || task.upstreamStatus)); }
 function canDeleteTask(task) { return ['FAILED', 'UNKNOWN', 'AUTH_REQUIRED'].includes(task.status); }
 function statusText(value) { return { LOCAL_QUEUED:'本地排队',SUBMITTING:'正在提交',PENDING:'远端排队',RUNNING:'生成中',AUTH_REQUIRED:'等待重新填写API Key',SUCCEEDED:'已完成',FAILED:'失败',UNKNOWN:'状态待核对' }[value] || value; }
-function formatDate(value, date = false) { return value ? new Intl.DateTimeFormat('zh-CN', date ? { month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit' } : { hour:'2-digit',minute:'2-digit' }).format(new Date(value)) : '—'; }
+function formatDate(value, date = false) { return value ? new Intl.DateTimeFormat('zh-CN', date ? { month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit' } : { hour:'2-digit',minute:'2-digit' }).format(new Date(value)) : '-'; }
 function formatTokenMillions(value) { return (Number(value || 0) / 1_000_000).toFixed(4); }
 function formatDiscountPercent(value) { return Math.round(Number(value ?? 1) * 100); }
 function percentToDiscount(value) {
@@ -428,4 +641,7 @@ function percentToDiscount(value) {
   return Math.min(100, Math.max(0, number)) / 100;
 }
 
-createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);
+const rootElement = document.getElementById('root');
+const root = globalThis.__seedanceRoot || createRoot(rootElement);
+if (import.meta.hot) globalThis.__seedanceRoot = root;
+root.render(<React.StrictMode><App /></React.StrictMode>);
