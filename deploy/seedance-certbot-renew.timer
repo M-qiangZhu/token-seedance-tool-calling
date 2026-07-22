@@ -1,0 +1,10 @@
+[Unit]
+Description=Twice daily Seedance IP certificate renewal
+
+[Timer]
+OnCalendar=*-*-* 00,12:00:00
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target

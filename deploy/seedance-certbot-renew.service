@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew Seedance IP TLS certificate
+After=network-online.target docker.service nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/lib/letsencrypt:/var/lib/letsencrypt -v /var/www/seedance-acme:/var/www/seedance-acme certbot/certbot:latest renew --quiet
+ExecStartPost=/usr/bin/systemctl reload nginx
